@@ -1,5 +1,10 @@
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
-import { DEFAULT_GRADE_CONFIG, summarize, type ForecastBasis } from "./grade-engine";
+import {
+  DEFAULT_GRADE_CONFIG,
+  summarize,
+  type CurrentGradeWeighting,
+  type ForecastBasis,
+} from "./grade-engine";
 import { GradeSheet, resolveDefaults } from "./components/GradeSheet";
 import { loadData, store, type AppData, type AppSettings, type Course } from "./store";
 import { formatUnits } from "./units";
@@ -67,6 +72,7 @@ function currentGrade(course: Course, app: AppSettings): string {
     defaultBasis: defaults.gradeBasis,
     estimateWeight: defaults.gradeIncludeEstimates ? 1 : 0,
     capForecastAtFull: defaults.gradeCapForecast,
+    currentGradeWeighting: defaults.gradeCurrentWeighting,
   });
   return summary.percent === null ? "—" : `${Math.round(summary.percent * 100)}%`;
 }
@@ -253,13 +259,29 @@ function AppSettingsDialog({
         <div className="dialog-head">
           <div>
             <p className="eyebrow">Defaults</p>
-            <h2 id="settings-title">Prediction settings</h2>
+            <h2 id="settings-title">Grade settings</h2>
           </div>
           <button className="icon-button" onClick={onClose} aria-label="Close settings">×</button>
         </div>
         <p className="dialog-intro">
-          New and inherited category forecasts use these values. A class or category can override them from its calculator button.
+          Courses inherit these grade and prediction defaults. A course can override them from its settings.
         </p>
+
+        <label className="field-row">
+          <span>
+            <b>Current-grade weighting</b>
+            <small>Final-weight mode accounts for pending assignments before normalizing scored work.</small>
+          </span>
+          <select
+            value={settings.gradeCurrentWeighting}
+            onChange={(event) =>
+              void update({ gradeCurrentWeighting: event.target.value as CurrentGradeWeighting })
+            }
+          >
+            <option value="FINAL_ASSIGNMENT">Final assignment weights</option>
+            <option value="CATEGORY_PROGRESS">Category progress</option>
+          </select>
+        </label>
 
         <label className="field-row">
           <span>
@@ -445,7 +467,7 @@ export default function App() {
         <div className="sidebar-footer">
           <span className="saved-dot" />
           <span>Private to this browser</span>
-          <button onClick={() => setSettingsOpen(true)} aria-label="Prediction settings">
+          <button onClick={() => setSettingsOpen(true)} aria-label="Grade settings">
             <SettingsIcon />
           </button>
         </div>
@@ -455,7 +477,7 @@ export default function App() {
         <header className="mobile-head">
           <button className="icon-button" onClick={() => setSidebarOpen(true)} aria-label="Open class sidebar"><MenuIcon /></button>
           <strong>Gradebook</strong>
-          <button className="icon-button" onClick={() => setSettingsOpen(true)} aria-label="Prediction settings"><SettingsIcon /></button>
+          <button className="icon-button" onClick={() => setSettingsOpen(true)} aria-label="Grade settings"><SettingsIcon /></button>
         </header>
 
         {active ? (

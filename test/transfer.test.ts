@@ -178,6 +178,7 @@ describe("the settings block round-trips and is applied", () => {
   const withSettings: GradebookFile = {
     ...file([category()]),
     settings: {
+      currentWeighting: "FINAL_ASSIGNMENT",
       alpha: 0.4,
       basis: "CATEGORY" as ForecastBasis,
       estimateWeight: 1,
@@ -225,6 +226,7 @@ describe("older files still read", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value.settings!.capForecast).toBe(true);
+    expect(result.value.settings!.currentWeighting).toBe("CATEGORY_PROGRESS");
     expect(result.value.categories[0]!.capForecast).toBeNull();
   });
 });

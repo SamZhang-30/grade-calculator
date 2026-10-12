@@ -17,6 +17,8 @@ import {
   serializeGradebook,
   summarize,
   type CategorySummary,
+  type CurrentGradeWeighting,
+  type EntrySummary,
   type CurveMode,
   type GradeStatus,
   type GradeSummary,
@@ -24,7 +26,15 @@ import {
   type Interval,
   type WeightMode,
 } from "../grade-engine";
-import { api, store, type Course, type GradeCategoryRow, type GradeEntryRow } from "../store";
+import { autofillAssignmentName } from "../autofill";
+import {
+  api,
+  store,
+  type Course,
+  type GradeCategoryRow,
+  type GradeEntryPatch,
+  type GradeEntryRow,
+} from "../store";
 import { unitInputValue } from "../units";
 
 /**
@@ -41,6 +51,7 @@ export interface GradeDefaults {
   gradeBasis: ForecastBasis;
   gradeIncludeEstimates: boolean;
   gradeCapForecast: boolean;
+  gradeCurrentWeighting: CurrentGradeWeighting;
 }
 
 /** What a course actually stores: nulls mean "follow the app". */
@@ -49,6 +60,7 @@ export interface CourseGradeSettings {
   gradeBasis: ForecastBasis | null;
   gradeIncludeEstimates: boolean | null;
   gradeCapForecast: boolean | null;
+  gradeCurrentWeighting: CurrentGradeWeighting | null;
 }
 
 /** One layer resolved against the one beneath it. */
@@ -58,6 +70,7 @@ export function resolveDefaults(course: CourseGradeSettings, app: GradeDefaults)
     gradeBasis: course.gradeBasis ?? app.gradeBasis,
     gradeIncludeEstimates: course.gradeIncludeEstimates ?? app.gradeIncludeEstimates,
     gradeCapForecast: course.gradeCapForecast ?? app.gradeCapForecast,
+    gradeCurrentWeighting: course.gradeCurrentWeighting ?? app.gradeCurrentWeighting,
   };
 }
 import type { ForecastBasis } from "../grade-engine";
@@ -161,6 +174,10 @@ const STATUS_LABEL: Record<GradeStatus, string> = {
 const pct = (x: number | null | undefined, digits = 2) =>
   x === null || x === undefined ? "—" : `${(x * 100).toFixed(digits)}%`;
 
+function NotApplicable() {
+  return <span className="not-applicable">N/A</span>;
+}
+
 /**
  * A signed percentage -- but only when there is a sign to give.
  *
@@ -235,6 +252,42 @@ interface Drag {
   fromCategoryId: string;
   overCategoryId: string;
   overIndex: number;
+}
+
+type AutofillField = "name" | "points" | "max" | "status";
+
+type AutofillSeed =
+  | { field: "name"; value: string }
+  | { field: "points" | "max"; value: number | null }
+  | { field: "status"; value: GradeStatus };
+
+type AutofillDrag = AutofillSeed & {
+  pointerId: number;
+  sourceIndex: number;
+  overIndex: number;
+};
+
+function AutofillHandle({
+  label,
+  onPointerDown,
+}: {
+  label: string;
+  onPointerDown: (event: React.PointerEvent<HTMLButtonElement>) => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="autofill-handle"
+      tabIndex={-1}
+      aria-label={label}
+      title={label}
+      onPointerDown={onPointerDown}
+      onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+      }}
+    />
+  );
 }
 
 /**
@@ -387,6 +440,7 @@ function useSheet(
   defaultBasis: ForecastBasis,
   includeEstimates: boolean,
   capForecast: boolean,
+  currentWeighting: CurrentGradeWeighting,
 ) {
   return useMemo(() => {
     // The engine takes a weight, not a flag: 0 excludes a guess from the
@@ -398,6 +452,7 @@ function useSheet(
       defaultBasis,
       estimateWeight: includeEstimates ? 1 : 0,
       capForecastAtFull: capForecast,
+      currentGradeWeighting: currentWeighting,
     };
     const priced = categories.map((c) => ({
       ...c,
@@ -406,18 +461,16 @@ function useSheet(
     }));
     const summary = summarize(priced, config);
     return { summary, prediction: forecast(priced, summary, config) };
-  }, [categories, alpha, defaultBasis, includeEstimates, capForecast]);
+  }, [categories, alpha, defaultBasis, includeEstimates, capForecast, currentWeighting]);
 }
 
 /** How a category's share of the grade came about, in words. */
 function weightLine(
   category: GradeCategoryRow,
   summary: CategorySummary,
-  pooledPoints: number,
-  residual: number,
 ): string {
   if (category.weightMode === "POOLED") {
-    return `Pooled: ${round(summary.gradedPoints, 2)} points out of ${round(pooledPoints, 2)} for remaining ${pct(residual, 0)} ≈ ${pct(summary.weight)}`;
+    return `Pooled final weight: ${pct(summary.syllabusWeight)} · current: ${pct(summary.weight)}`;
   }
   const split = category.weightByMax ? "" : ", split evenly";
   return `Fixed weight: ${pct(category.weight, 2)}${split}`;
@@ -441,6 +494,7 @@ export function GradeSummaryCard({
   basis,
   includeEstimates,
   capForecast,
+  currentWeighting,
   onOpen,
 }: {
   categories: GradeCategoryRow[];
@@ -448,9 +502,17 @@ export function GradeSummaryCard({
   basis: ForecastBasis;
   includeEstimates: boolean;
   capForecast: boolean;
+  currentWeighting: CurrentGradeWeighting;
   onOpen: () => void;
 }) {
-  const { summary, prediction } = useSheet(categories, alpha, basis, includeEstimates, capForecast);
+  const { summary, prediction } = useSheet(
+    categories,
+    alpha,
+    basis,
+    includeEstimates,
+    capForecast,
+    currentWeighting,
+  );
 
   if (categories.length === 0) {
     return (
@@ -578,12 +640,8 @@ export function GradeSheet({
     defaults.gradeBasis,
     defaults.gradeIncludeEstimates,
     defaults.gradeCapForecast,
+    defaults.gradeCurrentWeighting,
   );
-
-  /** The denominator every pooled category's share is taken out of. */
-  const pooledPoints = summary.categories
-    .filter((_, i) => layout[i]!.weightMode === "POOLED")
-    .reduce((total, c) => total + c.gradedPoints, 0);
 
   const run = async (fn: () => Promise<unknown>) => {
     try {
@@ -726,8 +784,6 @@ export function GradeSheet({
           category={category}
           summary={summary.categories[i]!}
           draggingId={drag?.entryId ?? null}
-          pooledPoints={pooledPoints}
-          residual={summary.pooledResidual}
           defaults={defaults}
           onDragStart={startDrag}
           run={run}
@@ -828,7 +884,8 @@ function CourseCalculations({
     course.gradeAlpha === null &&
     course.gradeBasis === null &&
     course.gradeIncludeEstimates === null &&
-    course.gradeCapForecast === null;
+    course.gradeCapForecast === null &&
+    course.gradeCurrentWeighting === null;
 
   const close = () => {
     commit();
@@ -849,7 +906,7 @@ function CourseCalculations({
         title={
           inherits
             ? "Course settings"
-            : "Course settings — forecast differs from the app defaults"
+            : "Course settings — calculations differ from the app defaults"
         }
       >
         <GearIcon />
@@ -896,9 +953,29 @@ function CourseCalculations({
 
           <section className="settings-group">
             <div className="settings-group-heading">
-              <b>Prediction model</b>
-              <small>Coursewide defaults inherited by its categories.</small>
+              <b>Grade calculations</b>
+              <small>Coursewide settings inherited from the app defaults.</small>
             </div>
+
+            <label className="field-row">
+              <span>
+                <b>Current-grade weighting</b>
+                <small>Final-weight mode uses pending assignments before renormalizing scored work.</small>
+              </span>
+              <select
+                value={resolved.gradeCurrentWeighting}
+                onChange={(event) =>
+                  run(() =>
+                    api.updateItem(itemId, {
+                      gradeCurrentWeighting: event.target.value as CurrentGradeWeighting,
+                    }),
+                  )
+                }
+              >
+                <option value="FINAL_ASSIGNMENT">Final assignment weights</option>
+                <option value="CATEGORY_PROGRESS">Category progress</option>
+              </select>
+            </label>
 
             <label className="field-row">
               <span><b>Confidence interval</b><small>Blank follows the app default of {Math.round((1 - app.gradeAlpha) * 100)}%.</small></span>
@@ -942,6 +1019,7 @@ function CourseCalculations({
                       gradeBasis: null,
                       gradeIncludeEstimates: null,
                       gradeCapForecast: null,
+                      gradeCurrentWeighting: null,
                     }),
                   );
                 }}
@@ -1071,17 +1149,33 @@ function SummaryTable({
   const categoryMeasureKey = categoryNames.join("\u0000");
 
   useLayoutEffect(() => {
-    const sample = tableRef.current?.querySelector<HTMLElement>("tbody td.sticky-col");
-    if (!sample) return;
-    const style = getComputedStyle(sample);
-    const canvas = document.createElement("canvas");
-    const context = canvas.getContext("2d");
-    if (!context) return;
-    context.font = style.font;
-    const labels = ["Category", "Total", ...categoryNames];
-    const textWidth = Math.max(...labels.map((label) => context.measureText(label).width));
-    const padding = Number.parseFloat(style.paddingLeft) + Number.parseFloat(style.paddingRight);
-    setCategoryWidth(Math.max(140, Math.ceil(textWidth + padding + 2)));
+    const table = tableRef.current;
+    if (!table) return;
+
+    const measure = () => {
+      const labels = table.querySelectorAll<HTMLElement>(
+        ".summary-category-head > span, tbody td.sticky-col",
+      );
+      let requiredWidth = 0;
+
+      for (const label of labels) {
+        const range = document.createRange();
+        range.selectNodeContents(label);
+        const style = getComputedStyle(label);
+        const padding = Number.parseFloat(style.paddingLeft) + Number.parseFloat(style.paddingRight);
+        requiredWidth = Math.max(requiredWidth, range.getBoundingClientRect().width + padding);
+        range.detach();
+      }
+
+      // Two pixels absorb fractional glyph and border rounding so the widest
+      // label never acquires an ellipsis at a different zoom level.
+      setCategoryWidth(Math.max(1, Math.ceil(requiredWidth) + 2));
+    };
+
+    measure();
+    window.addEventListener("resize", measure);
+    void document.fonts?.ready.then(measure);
+    return () => window.removeEventListener("resize", measure);
   }, [categoryMeasureKey]);
 
   const summaryStyle = {
@@ -1143,13 +1237,19 @@ function SummaryTable({
                   className={curved && c.percent !== null ? "curved-cell" : undefined}
                   title={curved && c.percent !== null ? "Curved score — hover to see the raw score" : undefined}
                 >
-                  {curved && c.percent !== null ? (
+                  {c.percent === null ? (
+                    <NotApplicable />
+                  ) : curved ? (
                     <CurveSwap curved={pct(c.percent)} raw={pct(c.rawPercent)} />
-                  ) : pct(c.percent)}
+                  ) : (
+                    pct(c.percent)
+                  )}
                 </td>
-                <td>{pct(c.weight)}</td>
-                <td className={tone(c.impact)}>{c.percent === null ? "—" : signed(c.impact)}</td>
-                <td>{pct(f.sd)}</td>
+                <td title={`Final weight represented: ${pct(c.finalWeight)}`}>{pct(c.weight)}</td>
+                <td className={c.percent === null ? undefined : tone(c.impact)}>
+                  {c.percent === null ? <NotApplicable /> : signed(c.impact)}
+                </td>
+                <td>{c.percent === null ? <NotApplicable /> : pct(f.sd)}</td>
                 <td>{atStakeLabel(c, byMaxOf(category))}</td>
                 <td
                   className={`proj proj-start${curved ? " curved-cell" : ""}`}
@@ -1181,7 +1281,9 @@ function SummaryTable({
           <tr className="total">
             <td className="sticky-col">Total</td>
             <td>{pct(summary.percent)}</td>
-            <td>{pct(summary.categories.reduce((sum, c) => sum + c.weight, 0))}</td>
+            <td title={`Final weight represented: ${pct(1 - summary.atStakePercent)}`}>
+              {pct(summary.categories.reduce((sum, c) => sum + c.weight, 0))}
+            </td>
             <td className={tone(summary.impact)}>
               {summary.percent === null ? "—" : signed(summary.impact)}
             </td>
@@ -1207,8 +1309,6 @@ function CategoryTable({
   category,
   summary,
   draggingId,
-  pooledPoints,
-  residual,
   defaults,
   onDragStart,
   run,
@@ -1216,8 +1316,6 @@ function CategoryTable({
   category: GradeCategoryRow;
   summary: CategorySummary;
   draggingId: string | null;
-  pooledPoints: number;
-  residual: number;
   defaults: GradeDefaults;
   onDragStart: (event: React.PointerEvent, entryId: string, categoryId: string) => void;
   run: (fn: () => Promise<unknown>) => Promise<void>;
@@ -1227,6 +1325,8 @@ function CategoryTable({
   const sectionRef = useRef<HTMLElement | null>(null);
   const focusAddedEntryRef = useRef(false);
   const resizeRef = useRef<{ pointerId: number; startX: number; startWidth: number; width: number } | null>(null);
+  const autofillRef = useRef<AutofillDrag | null>(null);
+  const [autofill, setAutofill] = useState<AutofillDrag | null>(null);
 
   useEffect(() => setNameWidth(storedNameWidth), [storedNameWidth]);
 
@@ -1235,6 +1335,105 @@ function CategoryTable({
     focusAddedEntryRef.current = false;
     sectionRef.current?.querySelector<HTMLInputElement>("tbody tr:last-child td.name-cell input")?.focus();
   }, [category.entries.length]);
+
+  const autofillCommitRef = useRef<(drag: AutofillDrag) => void>(() => {});
+  autofillCommitRef.current = (dropped) => {
+    if (dropped.overIndex === dropped.sourceIndex) return;
+
+    const first = Math.min(dropped.sourceIndex, dropped.overIndex);
+    const last = Math.max(dropped.sourceIndex, dropped.overIndex);
+    const updates: { id: string; patch: GradeEntryPatch }[] = [];
+
+    for (let index = first; index <= last; index += 1) {
+      const entry = category.entries[index];
+      if (!entry) continue;
+
+      switch (dropped.field) {
+        case "name": {
+          const name = autofillAssignmentName(dropped.value, index - dropped.sourceIndex);
+          if (entry.name !== name) updates.push({ id: entry.id, patch: { name } });
+          break;
+        }
+        case "points":
+          if (entry.points !== dropped.value) {
+            updates.push({ id: entry.id, patch: { points: dropped.value } });
+          }
+          break;
+        case "max":
+          if (entry.max !== dropped.value) {
+            updates.push({ id: entry.id, patch: { max: dropped.value } });
+          }
+          break;
+        case "status":
+          if (entry.status !== dropped.value) {
+            updates.push({ id: entry.id, patch: { status: dropped.value } });
+          }
+          break;
+      }
+    }
+
+    if (updates.length > 0) void run(() => api.updateGradeEntries(updates));
+  };
+
+  useEffect(() => {
+    const move = (event: PointerEvent) => {
+      const current = autofillRef.current;
+      if (!current || event.pointerId !== current.pointerId) return;
+
+      const under = document.elementFromPoint(event.clientX, event.clientY);
+      const row = under?.closest<HTMLElement>("tr[data-entry]");
+      const body = row?.closest<HTMLElement>("tbody[data-category]");
+      if (!row || body?.dataset.category !== category.id) return;
+
+      const index = category.entries.findIndex((entry) => entry.id === row.dataset.entry);
+      if (index < 0 || index === current.overIndex) return;
+
+      const next = { ...current, overIndex: index };
+      autofillRef.current = next;
+      setAutofill(next);
+    };
+
+    const finish = (event: PointerEvent, commit: boolean) => {
+      const dropped = autofillRef.current;
+      if (!dropped || event.pointerId !== dropped.pointerId) return;
+      autofillRef.current = null;
+      setAutofill(null);
+      document.body.classList.remove("autofill-dragging");
+      if (commit) autofillCommitRef.current(dropped);
+    };
+
+    const end = (event: PointerEvent) => finish(event, true);
+    const cancel = (event: PointerEvent) => finish(event, false);
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", end);
+    window.addEventListener("pointercancel", cancel);
+    return () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", end);
+      window.removeEventListener("pointercancel", cancel);
+      document.body.classList.remove("autofill-dragging");
+    };
+  }, [category.id, category.entries]);
+
+  const beginAutofill = (
+    event: React.PointerEvent<HTMLButtonElement>,
+    sourceIndex: number,
+    seed: AutofillSeed,
+  ) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    const next = {
+      ...seed,
+      pointerId: event.pointerId,
+      sourceIndex,
+      overIndex: sourceIndex,
+    } as AutofillDrag;
+    autofillRef.current = next;
+    setAutofill(next);
+    document.body.classList.add("autofill-dragging");
+  };
 
   const clampNameWidth = (width: number) => Math.min(420, Math.max(80, Math.round(width)));
   const persistNameWidth = (width: number) => {
@@ -1290,7 +1489,7 @@ function CategoryTable({
         name: "",
         max: null,
         points: null,
-        status: "POSSIBLE",
+        status: "PENDING",
         notes: "",
       }),
     );
@@ -1304,7 +1503,7 @@ function CategoryTable({
             reference line look like a form. Editing lives behind the gear. */}
         <div className="grade-heading">
           <h4>{category.name}</h4>
-          <p className="weight-line">{weightLine(category, summary, pooledPoints, residual)}</p>
+          <p className="weight-line">{weightLine(category, summary)}</p>
         </div>
         <button className="ghost icon add-assignment" onClick={() => void add()} aria-label={`Add assignment to ${category.name}`}>
           <PlusIcon />
@@ -1379,6 +1578,11 @@ function CategoryTable({
                 summary={summary.entries[i]!}
                 dragging={draggingId === entry.id}
                 onDragStart={(e) => onDragStart(e, entry.id, category.id)}
+                rowIndex={i}
+                autofill={autofill}
+                onAutofillStart={(event, seed) =>
+                  beginAutofill(event, i, seed)
+                }
                 run={run}
               />
             ))}
@@ -1397,12 +1601,21 @@ function EntryRow({
   summary,
   dragging,
   onDragStart,
+  rowIndex,
+  autofill,
+  onAutofillStart,
   run,
 }: {
   entry: GradeEntryRow;
-  summary: { percent: number | null; weight: number; impact: number; counted: boolean };
+  summary: EntrySummary;
   dragging: boolean;
   onDragStart: (event: React.PointerEvent) => void;
+  rowIndex: number;
+  autofill: AutofillDrag | null;
+  onAutofillStart: (
+    event: React.PointerEvent<HTMLButtonElement>,
+    seed: AutofillSeed,
+  ) => void;
   run: (fn: () => Promise<unknown>) => Promise<void>;
 }) {
   const [name, setName] = useState(entry.name);
@@ -1418,6 +1631,45 @@ function EntryRow({
   const cycle = () =>
     save({ status: STATUS_CYCLE[(STATUS_CYCLE.indexOf(entry.status) + 1) % STATUS_CYCLE.length]! });
 
+  const autofillCellClass = (field: AutofillField, base = "") => {
+    const active = autofill?.field === field;
+    const first = active ? Math.min(autofill.sourceIndex, autofill.overIndex) : -1;
+    const last = active ? Math.max(autofill.sourceIndex, autofill.overIndex) : -1;
+    const inRange = active && rowIndex >= first && rowIndex <= last;
+    const source = active && rowIndex === autofill.sourceIndex;
+    return [
+      base,
+      "autofill-cell",
+      inRange ? "autofill-range" : "",
+      inRange && rowIndex === first ? "autofill-range-start" : "",
+      inRange && rowIndex === last ? "autofill-range-end" : "",
+      source ? "autofill-source" : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
+  };
+
+  const numberSeed = (value: string, positiveOnly: boolean): number | null | undefined => {
+    if (value.trim() === "") return null;
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed) || (positiveOnly && parsed <= 0)) return undefined;
+    return parsed;
+  };
+
+  const beginNumberAutofill = (
+    event: React.PointerEvent<HTMLButtonElement>,
+    field: "points" | "max",
+    value: string,
+  ) => {
+    const parsed = numberSeed(value, field === "max");
+    if (parsed === undefined) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+    onAutofillStart(event, { field, value: parsed });
+  };
+
   return (
     <tr
       data-entry={entry.id}
@@ -1431,15 +1683,19 @@ function EntryRow({
       >
         <GripIcon />
       </td>
-      <td className="sticky-col sticky-name name-cell">
+      <td className={autofillCellClass("name", "sticky-col sticky-name name-cell")}>
         <input
           title={name}
           value={name}
           onChange={(e) => setName(e.target.value)}
           onBlur={() => name !== entry.name && save({ name })}
         />
+        <AutofillHandle
+          label="Drag to autofill assignment names"
+          onPointerDown={(event) => onAutofillStart(event, { field: "name", value: name })}
+        />
       </td>
-      <td>
+      <td className={autofillCellClass("points", "score-input-cell")}>
         <input
           inputMode="decimal"
           placeholder="—"
@@ -1452,8 +1708,12 @@ function EntryRow({
             }
           }}
         />
+        <AutofillHandle
+          label="Drag to autofill PTS values"
+          onPointerDown={(event) => beginNumberAutofill(event, "points", points)}
+        />
       </td>
-      <td>
+      <td className={autofillCellClass("max", "score-input-cell")}>
         <input
           inputMode="decimal"
           placeholder="—"
@@ -1464,15 +1724,29 @@ function EntryRow({
             if (next !== entry.max && (next === null || next > 0)) void save({ max: next });
           }}
         />
+        <AutofillHandle
+          label="Drag to autofill MAX values"
+          onPointerDown={(event) => beginNumberAutofill(event, "max", max)}
+        />
       </td>
-      <td className="status-cell">
+      <td className={autofillCellClass("status", "status-cell")}>
         <button className={`status ${entry.status.toLowerCase()}`} onClick={cycle}>
           {STATUS_LABEL[entry.status]}
         </button>
+        <AutofillHandle
+          label="Drag to autofill statuses"
+          onPointerDown={(event) =>
+            onAutofillStart(event, { field: "status", value: entry.status })
+          }
+        />
       </td>
-      <td>{pct(summary.percent)}</td>
-      <td>{summary.counted ? pct(summary.weight) : "—"}</td>
-      <td className={tone(summary.impact)}>{summary.counted ? signed(summary.impact) : "—"}</td>
+      <td>{summary.percent === null ? <NotApplicable /> : pct(summary.percent)}</td>
+      <td title={summary.counted ? `Final weight: ${pct(summary.finalWeight)}` : undefined}>
+        {summary.counted ? pct(summary.weight) : <NotApplicable />}
+      </td>
+      <td className={summary.counted ? tone(summary.impact) : undefined}>
+        {summary.counted ? signed(summary.impact) : <NotApplicable />}
+      </td>
       <td>
         <input
           value={notes}
@@ -2053,6 +2327,7 @@ function Transfer({
       // other. A snapshot that leaves you looking at different numbers is not a
       // snapshot.
       settings: {
+        currentWeighting: defaults.gradeCurrentWeighting,
         alpha: defaults.gradeAlpha,
         basis: defaults.gradeBasis,
         estimateWeight: defaults.gradeIncludeEstimates ? 1 : 0,

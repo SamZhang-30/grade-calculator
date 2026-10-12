@@ -3,16 +3,18 @@ import type { GradeEntry, GradeStatus } from "./types.js";
 /**
  * How a category's weight is spread across its rows.
  *
- * Two DIFFERENT distributions come out of the same category weight, and keeping
+ * Three distributions can come out of the same category weight, and keeping
  * them separate is the whole trick:
  *
- * - the GRADED distribution spreads the full category weight across the rows
+ * - the FINAL distribution prices every returned and pending row against the
+ *   full roster. The default current grade renormalizes only its scored rows.
+ * - the legacy GRADED distribution spreads the full category weight across rows
  *   that have scores, so a category with 3 of 14 assignments back still counts
- *   for its whole 20%. This is what makes a half-finished quarter readable.
+ *   for its whole 20% under category-progress weighting.
  * - the AT-STAKE distribution measures the unscored rows against the FULL
  *   roster, so those 11 missing assignments show as 20% x 11/14 still undecided.
  *
- * The spreadsheet does exactly this: 11 graded participation slots each worth
+ * The original spreadsheet's legacy mode has 11 graded participation slots each worth
  * 1.82% (summing to the full 20%), while 30 unscored points read as 4.29% at
  * stake. The two columns are answering different questions.
  */
@@ -88,6 +90,20 @@ export function gradedWeights(
 }
 
 /**
+ * The end-term distribution: every scored or pending row is priced against the
+ * full entered roster. These weights do not change when a pending score lands.
+ */
+export function finalWeights(
+  entries: readonly GradeEntry[],
+  weight: number,
+  byMax: boolean,
+): Map<string, number> {
+  const inRoster = (entry: GradeEntry) =>
+    hasDenominator(entry) && (isScored(entry) || countsTowardAtStake(entry.status));
+  return distribute(entries, weight, byMax, inRoster, inRoster);
+}
+
+/**
  * The at-stake distribution: unscored rows measured against the whole roster,
  * scored and unscored alike. `POSSIBLE` rows are in neither.
  */
@@ -104,4 +120,3 @@ export function atStakeWeights(
     (e) => hasDenominator(e) && (isScored(e) || countsTowardAtStake(e.status)),
   );
 }
-

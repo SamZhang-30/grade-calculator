@@ -7,10 +7,12 @@ A browser-only grade calculator extracted from Gamified Shovel. It keeps the ori
 - Multiple classes with a sidebar selector and customizable colors
 - Fixed or pooled category weighting
 - Points-based or equal assignment weighting
+- Final-assignment current weighting that accounts for pending work, with legacy category-progress weighting available
 - Returned, estimated, pending, and possible assignment states
 - Bayesian grade predictions with configurable confidence intervals
 - App, class, and category-level prediction settings
 - Drag assignments within and between categories
+- Spreadsheet-style autofill for names, scores, point values, and statuses
 - JSON import/export for each class
 - Automatic browser-local persistence
 - Static build with no API or database

@@ -1,5 +1,17 @@
-import { CURVE_MODES, FORECAST_BASES, GRADE_STATUSES, WEIGHT_MODES } from "./types.js";
-import type { CurveMode, ForecastBasis, GradeStatus, WeightMode } from "./types.js";
+import {
+  CURRENT_GRADE_WEIGHTINGS,
+  CURVE_MODES,
+  FORECAST_BASES,
+  GRADE_STATUSES,
+  WEIGHT_MODES,
+} from "./types.js";
+import type {
+  CurrentGradeWeighting,
+  CurveMode,
+  ForecastBasis,
+  GradeStatus,
+  WeightMode,
+} from "./types.js";
 
 /**
  * Reading and writing a gradebook as a file.
@@ -66,6 +78,7 @@ export interface GradebookFile {
    * global is touched.
    */
   settings?: {
+    currentWeighting: CurrentGradeWeighting;
     alpha: number;
     basis: ForecastBasis;
     estimateWeight: number;
@@ -316,6 +329,13 @@ export function parseGradebook(text: string): ParseResult {
     });
     if (!estimateWeight.ok) return fail(estimateWeight.error);
 
+    const currentWeighting = readOneOf(
+      raw.settings.currentWeighting ?? "CATEGORY_PROGRESS",
+      CURRENT_GRADE_WEIGHTINGS,
+      "settings.currentWeighting",
+    );
+    if (!currentWeighting.ok) return fail(currentWeighting.error);
+
     if (
       raw.settings.capForecast !== undefined &&
       typeof raw.settings.capForecast !== "boolean"
@@ -324,6 +344,7 @@ export function parseGradebook(text: string): ParseResult {
     }
 
     settings = {
+      currentWeighting: currentWeighting.value,
       alpha: alpha.value,
       basis: basis.value,
       estimateWeight: estimateWeight.value,

@@ -1,4 +1,4 @@
-import type { ForecastBasis } from "./types.js";
+import type { CurrentGradeWeighting, ForecastBasis } from "./types.js";
 
 /**
  * Every tunable number the grade sheet uses.
@@ -9,6 +9,8 @@ import type { ForecastBasis } from "./types.js";
  * the real constants land.
  */
 export interface GradeConfig {
+  /** How scored work is reweighted into the current course average. */
+  currentGradeWeighting: CurrentGradeWeighting;
   /**
    * Tolerance for "do these weights add up to 100%?".
    *
@@ -111,6 +113,7 @@ export interface GradeConfig {
 }
 
 export const DEFAULT_GRADE_CONFIG: GradeConfig = {
+  currentGradeWeighting: "FINAL_ASSIGNMENT",
   weightEpsilon: 1e-9,
   alpha: 0.2,
   truncateDegreesOfFreedom: true,
@@ -142,4 +145,3 @@ export const FREQUENTIST_PRIOR: GradeConfig["forecastPrior"] = {
   stdDev: 0,
   mean: 0,
 };
-

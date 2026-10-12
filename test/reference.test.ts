@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { summarize, type GradeCategory, type GradeEntry, type GradeStatus } from "../src/grade-engine/index.js";
+import {
+  DEFAULT_GRADE_CONFIG,
+  summarize,
+  type GradeCategory,
+  type GradeEntry,
+  type GradeStatus,
+} from "../src/grade-engine/index.js";
 
 /**
  * The sheet this feature replaces, reproduced row for row.
@@ -72,7 +78,10 @@ function sheet(): GradeCategory[] {
 const pct = (x: number | null) => (x === null ? null : Number((x * 100).toFixed(2)));
 
 describe("the original spreadsheet", () => {
-  const result = summarize(sheet());
+  const result = summarize(sheet(), {
+    ...DEFAULT_GRADE_CONFIG,
+    currentGradeWeighting: "CATEGORY_PROGRESS",
+  });
   const [participation, labs, midterms, project] = result.categories;
 
   it("matches every category percentage", () => {

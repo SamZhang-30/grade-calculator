@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import fc from "fast-check";
 import {
+  DEFAULT_GRADE_CONFIG,
   summarize,
   type GradeCategory,
   type GradeEntry,
@@ -122,6 +123,70 @@ describe("weights", () => {
       }),
     );
   });
+
+  it("keeps represented final weight as the exact complement of at stake", () => {
+    fc.assert(
+      fc.property(sheetArb, (sheet) => {
+        const result = summarize(sheet);
+        if (result.percent === null) return;
+        const represented = result.categories.reduce((sum, category) => sum + category.finalWeight, 0);
+        expect(represented).toBeCloseTo(1 - result.atStakePercent, 9);
+      }),
+    );
+  });
+});
+
+describe("final-assignment current weighting", () => {
+  const course = (): GradeCategory[] => [
+    {
+      id: "homework",
+      name: "Homework",
+      weightMode: "FIXED",
+      weight: 0.6,
+      weightByMax: true,
+      sortOrder: 0,
+      entries: [
+        { id: "h1", name: "Homework", points: 90, max: 100, status: "RETURNED", sortOrder: 0 },
+      ],
+    },
+    {
+      id: "midterms",
+      name: "Midterms",
+      weightMode: "FIXED",
+      weight: 0.4,
+      weightByMax: true,
+      sortOrder: 1,
+      entries: [
+        { id: "m1", name: "Midterm 1", points: 80, max: 100, status: "RETURNED", sortOrder: 0 },
+        { id: "m2", name: "Midterm 2", points: null, max: 100, status: "PENDING", sortOrder: 1 },
+      ],
+    },
+  ];
+
+  it("prices pending work first, then normalizes only the scored final weights", () => {
+    const result = summarize(course());
+    const [homework, midterms] = result.categories;
+
+    expect(DEFAULT_GRADE_CONFIG.currentGradeWeighting).toBe("FINAL_ASSIGNMENT");
+    expect(homework!.finalWeight).toBeCloseTo(0.6, 12);
+    expect(midterms!.entries[0]!.finalWeight).toBeCloseTo(0.2, 12);
+    expect(midterms!.entries[1]!.finalWeight).toBeCloseTo(0.2, 12);
+    expect(midterms!.atStakePercent).toBeCloseTo(0.2, 12);
+    expect(homework!.weight).toBeCloseTo(0.75, 12);
+    expect(midterms!.weight).toBeCloseTo(0.25, 12);
+    expect(result.percent).toBeCloseTo(0.875, 12);
+    expect(result.warnings).toEqual([]);
+  });
+
+  it("retains category-progress weighting as an explicit legacy option", () => {
+    const result = summarize(course(), {
+      ...DEFAULT_GRADE_CONFIG,
+      currentGradeWeighting: "CATEGORY_PROGRESS",
+    });
+    expect(result.categories[0]!.weight).toBeCloseTo(0.6, 12);
+    expect(result.categories[1]!.weight).toBeCloseTo(0.4, 12);
+    expect(result.percent).toBeCloseTo(0.86, 12);
+  });
 });
 
 describe("POSSIBLE rows are inert", () => {
@@ -167,7 +232,11 @@ describe("scoring at your own average changes nothing", () => {
   it("a pending row returned at the category percentage leaves the grade where it was", () => {
     fc.assert(
       fc.property(sheetArb, (sheet) => {
-        const before = summarize(sheet);
+        const legacy = {
+          ...DEFAULT_GRADE_CONFIG,
+          currentGradeWeighting: "CATEGORY_PROGRESS" as const,
+        };
+        const before = summarize(sheet, legacy);
         const target = before.categories.findIndex(
           (c, i) => c.percent !== null && sheet[i]!.entries.some((e) => e.status === "PENDING"),
         );
@@ -188,6 +257,7 @@ describe("scoring at your own average changes nothing", () => {
                   }),
                 },
           ),
+          legacy,
         );
         expect(after.percent).toBeCloseTo(before.percent, 9);
       }),
@@ -338,17 +408,20 @@ describe("an empty gradebook", () => {
   });
 
   it("raises ONE warning, not two, when graded weight falls short", () => {
-    const result = summarize([
-      {
-        id: "c",
-        name: "Homework",
-        weightMode: "FIXED",
-        weight: 0.2,
-        weightByMax: true,
-        sortOrder: 0,
-        entries: [{ id: "a", name: "Set 1", points: 9, max: 10, status: "RETURNED", sortOrder: 0 }],
-      },
-    ]);
+    const result = summarize(
+      [
+        {
+          id: "c",
+          name: "Homework",
+          weightMode: "FIXED",
+          weight: 0.2,
+          weightByMax: true,
+          sortOrder: 0,
+          entries: [{ id: "a", name: "Set 1", points: 9, max: 10, status: "RETURNED", sortOrder: 0 }],
+        },
+      ],
+      { ...DEFAULT_GRADE_CONFIG, currentGradeWeighting: "CATEGORY_PROGRESS" },
+    );
     expect(result.warnings.map((w) => w.code)).toEqual(["RENORMALIZED"]);
     // 20% of a syllabus, stretched to be the whole of the current grade.
     expect(result.percent).toBeCloseTo(0.9, 12);

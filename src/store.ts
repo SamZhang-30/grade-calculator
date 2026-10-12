@@ -1,8 +1,10 @@
 import {
+  CURRENT_GRADE_WEIGHTINGS,
   CURVE_MODES,
   DEFAULT_GRADE_CONFIG,
   parseGradebook,
   type CurveMode,
+  type CurrentGradeWeighting,
   type ForecastBasis,
   type GradeCategory,
   type GradeEntry,
@@ -14,6 +16,10 @@ import {
 export interface GradeEntryRow extends GradeEntry {
   notes: string | null;
 }
+
+export type GradeEntryPatch = Partial<
+  Pick<GradeEntryRow, "name" | "points" | "max" | "status" | "notes">
+>;
 
 export interface GradeCategoryRow extends GradeCategory {
   entries: GradeEntryRow[];
@@ -42,6 +48,7 @@ export interface Course {
   gradeBasis: ForecastBasis | null;
   gradeIncludeEstimates: boolean | null;
   gradeCapForecast: boolean | null;
+  gradeCurrentWeighting: CurrentGradeWeighting | null;
   categories: GradeCategoryRow[];
 }
 
@@ -50,6 +57,7 @@ export interface AppSettings {
   gradeBasis: ForecastBasis;
   gradeIncludeEstimates: boolean;
   gradeCapForecast: boolean;
+  gradeCurrentWeighting: CurrentGradeWeighting;
 }
 
 export interface AppData {
@@ -72,6 +80,7 @@ const starterData = (): AppData => ({
     gradeBasis: DEFAULT_GRADE_CONFIG.defaultBasis,
     gradeIncludeEstimates: DEFAULT_GRADE_CONFIG.estimateWeight > 0,
     gradeCapForecast: DEFAULT_GRADE_CONFIG.capForecastAtFull,
+    gradeCurrentWeighting: DEFAULT_GRADE_CONFIG.currentGradeWeighting,
   },
   courses: [
     {
@@ -86,6 +95,7 @@ const starterData = (): AppData => ({
       gradeBasis: null,
       gradeIncludeEstimates: null,
       gradeCapForecast: null,
+      gradeCurrentWeighting: null,
       categories: [
         {
           id: "sample-coursework",
@@ -188,8 +198,21 @@ export function loadData(): AppData {
     if (parsed.version !== 1 || !Array.isArray(parsed.courses)) throw new Error("Unsupported data");
     // Metadata was added after the first release. Normalizing on read keeps
     // existing local gradebooks valid without a disruptive storage migration.
+    parsed.settings = {
+      ...parsed.settings,
+      gradeCurrentWeighting: CURRENT_GRADE_WEIGHTINGS.includes(
+        parsed.settings?.gradeCurrentWeighting as CurrentGradeWeighting,
+      )
+        ? (parsed.settings.gradeCurrentWeighting as CurrentGradeWeighting)
+        : DEFAULT_GRADE_CONFIG.currentGradeWeighting,
+    };
     parsed.courses = parsed.courses.map((course) => ({
       ...course,
+      gradeCurrentWeighting: CURRENT_GRADE_WEIGHTINGS.includes(
+        course.gradeCurrentWeighting as CurrentGradeWeighting,
+      )
+        ? (course.gradeCurrentWeighting as CurrentGradeWeighting)
+        : null,
       emoji: typeof course.emoji === "string" && course.emoji ? course.emoji : "📚",
       term: typeof course.term === "string" ? course.term : "",
       instructor: typeof course.instructor === "string" ? course.instructor : "",
@@ -278,6 +301,7 @@ export const store = {
         gradeBasis: null,
         gradeIncludeEstimates: null,
         gradeCapForecast: null,
+        gradeCurrentWeighting: null,
         categories: [],
       };
       data.courses.push(course);
@@ -312,6 +336,7 @@ export const api = {
       gradeBasis?: ForecastBasis | null;
       gradeIncludeEstimates?: boolean | null;
       gradeCapForecast?: boolean | null;
+      gradeCurrentWeighting?: CurrentGradeWeighting | null;
     },
   ) => mutate((data) => Object.assign(courseById(data, id), patch)),
 
@@ -402,16 +427,13 @@ export const api = {
       return entry;
     }),
 
-  updateGradeEntry: (
-    id: string,
-    patch: {
-      name?: string;
-      points?: number | null;
-      max?: number | null;
-      status?: GradeStatus;
-      notes?: string;
-    },
-  ) => mutate((data) => Object.assign(entryById(data, id), patch)),
+  updateGradeEntry: (id: string, patch: GradeEntryPatch) =>
+    mutate((data) => Object.assign(entryById(data, id), patch)),
+
+  updateGradeEntries: (updates: { id: string; patch: GradeEntryPatch }[]) =>
+    mutate((data) => {
+      for (const update of updates) Object.assign(entryById(data, update.id), update.patch);
+    }),
 
   deleteGradeEntry: (id: string) =>
     mutate((data) => {
@@ -450,6 +472,7 @@ export const api = {
         course.gradeBasis = settings.basis;
         course.gradeIncludeEstimates = settings.estimateWeight > 0;
         course.gradeCapForecast = settings.capForecast;
+        course.gradeCurrentWeighting = settings.currentWeighting;
       }
 
       course.categories = categories.map((category, categoryIndex) => ({

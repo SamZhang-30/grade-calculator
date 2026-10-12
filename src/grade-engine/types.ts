@@ -48,6 +48,24 @@ export type WeightMode = "FIXED" | "POOLED";
 
 export const WEIGHT_MODES: readonly WeightMode[] = ["FIXED", "POOLED"] as const;
 
+/**
+ * How final assignment weights are turned into the current course grade.
+ *
+ * `FINAL_ASSIGNMENT` prices every returned and pending assignment against the
+ * full entered roster first, then renormalizes only the returned weights. This
+ * keeps one of two equally weighted midterms at half of their category's final
+ * share while the other is pending.
+ *
+ * `CATEGORY_PROGRESS` is the original behavior: each category redistributes
+ * its full share over whichever assignments have already been scored.
+ */
+export type CurrentGradeWeighting = "FINAL_ASSIGNMENT" | "CATEGORY_PROGRESS";
+
+export const CURRENT_GRADE_WEIGHTINGS: readonly CurrentGradeWeighting[] = [
+  "FINAL_ASSIGNMENT",
+  "CATEGORY_PROGRESS",
+] as const;
+
 /** How a category-level percentage is transformed after its raw score is known. */
 export type CurveMode = "ADDITIVE" | "MULTIPLICATIVE" | "CUSTOM";
 
@@ -182,6 +200,8 @@ export interface EntrySummary {
   status: GradeStatus;
   /** Share of the final grade this row accounts for, 0-1. Zero unless counted. */
   weight: number;
+  /** This row's end-term share before the current-grade renormalization. */
+  finalWeight: number;
   /** points / max. null unless scored. */
   percent: number | null;
   /** (percent - 1) x weight -- signed contribution to the deviation from 100%. */
@@ -197,6 +217,8 @@ export interface CategorySummary {
   /** Share of the final grade the category's GRADED work accounts for, after
    *  renormalization. This is the number the impact column is built on. */
   weight: number;
+  /** End-term share represented by the category's currently scored rows. */
+  finalWeight: number;
   /** The category's share of the FINAL grade: as entered for FIXED, as resolved
    *  from the residual for POOLED. What a syllabus would print. */
   syllabusWeight: number;

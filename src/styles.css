@@ -2201,6 +2201,10 @@ table.rows.grades input:focus {
   background: color-mix(in srgb, var(--accent) 12%, #1b1b1b) !important;
 }
 
+.not-applicable {
+  color: var(--dim);
+}
+
 input:focus::placeholder,
 textarea:focus::placeholder {
   color: transparent !important;
@@ -2694,11 +2698,11 @@ body.resizing-name-column * {
 }
 
 .summary-scroll-frame::before {
-  left: 140px;
+  left: var(--summary-name-width, 140px);
 }
 
 table.rows.grades:not(.entries) .col-name {
-  width: 140px;
+  width: var(--summary-name-width, 140px);
 }
 
 .summary-scroll-frame table.rows.grades th.sticky-col,
@@ -2754,11 +2758,11 @@ table.rows.grades:not(.entries) .col-name {
 }
 
 .summary-scroll-frame::before {
-  left: 140px;
+  left: var(--summary-name-width, 140px);
 }
 
 table.rows.grades:not(.entries) .col-name {
-  width: 140px;
+  width: var(--summary-name-width, 140px);
 }
 
 .summary-scroll-frame table.rows.grades th.sticky-col,
@@ -3452,6 +3456,7 @@ body {
 
 .course-list button {
   --course-color: var(--accent);
+  grid-template-columns: 26px minmax(0, 1fr) max-content;
   min-height: 42px;
   border: 1px solid transparent;
   padding: 8px 10px;
@@ -4368,11 +4373,11 @@ body,
 }
 
 .summary-scroll-frame::before {
-  left: 141px;
+  left: var(--summary-name-width, 140px);
 }
 
 table.rows.grades:not(.entries) .col-name {
-  width: 140px;
+  width: var(--summary-name-width, 140px);
 }
 
 .summary-scroll-frame table.rows.grades th.sticky-col,
@@ -5095,6 +5100,19 @@ table.rows.grades tbody tr.total td {
   padding-left: 2px;
 }
 
+/* PTS and MAX inputs are inset for compact number spacing, so drawing their
+   focus ring on the input leaves it floating inside the grid cell. Move the
+   focused surface to the cell so its highlight follows the actual grid edge. */
+.category-table-shell table.rows.grades.entries td.score-input-cell:focus-within {
+  background: color-mix(in srgb, var(--accent) 12%, #1b1b1b) !important;
+  box-shadow: inset 0 0 0 2px var(--accent) !important;
+}
+
+.category-table-shell table.rows.grades.entries td.score-input-cell > input:focus {
+  background: transparent !important;
+  box-shadow: none;
+}
+
 .scroll-frame::before,
 .scroll-frame::after {
   width: 26px;
@@ -5230,4 +5248,96 @@ body,
   .course-head {
     top: 52px;
   }
+}
+
+/* Spreadsheet fill handles live on the four fields whose values can be copied
+   vertically. The hit target is larger than the visible square, so the corner
+   stays easy to catch without turning every cell into a field of controls. */
+.category-table-shell table.rows.grades.entries td.autofill-cell {
+  position: relative;
+}
+
+.category-table-shell table.rows.grades.entries button.autofill-handle {
+  appearance: none;
+  position: absolute;
+  z-index: 18;
+  right: 0;
+  bottom: 0;
+  width: 12px;
+  height: 12px;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  cursor: crosshair;
+  opacity: 0;
+  padding: 0;
+  touch-action: none;
+  transition: opacity 0.1s ease;
+}
+
+.category-table-shell table.rows.grades.entries button.autofill-handle::after {
+  content: "";
+  position: absolute;
+  right: 1px;
+  bottom: 1px;
+  width: 6px;
+  height: 6px;
+  border: 1px solid #111;
+  background: var(--accent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.category-table-shell table.rows.grades.entries td.autofill-cell:hover > .autofill-handle,
+.category-table-shell table.rows.grades.entries td.autofill-cell:focus-within > .autofill-handle,
+.category-table-shell table.rows.grades.entries td.autofill-range > .autofill-handle {
+  opacity: 1;
+}
+
+.category-table-shell table.rows.grades.entries td.autofill-range {
+  background: color-mix(in srgb, var(--accent) 18%, #1b1d1b) !important;
+  box-shadow: none !important;
+}
+
+/* One continuous range perimeter follows the existing grid exactly. Interior
+   row seams stay untouched; only the source gets its own heavier rectangle. */
+.category-table-shell table.rows.grades.entries td.autofill-range::before,
+.category-table-shell table.rows.grades.entries td.autofill-source::after {
+  content: "";
+  position: absolute;
+  z-index: 16;
+  inset: 0;
+  box-sizing: border-box;
+  border-right: 1px solid var(--accent);
+  border-left: 1px solid var(--accent);
+  pointer-events: none;
+}
+
+.category-table-shell table.rows.grades.entries td.autofill-range-start::before {
+  border-top: 1px solid var(--accent);
+}
+
+.category-table-shell table.rows.grades.entries td.autofill-range-end::before {
+  border-bottom: 1px solid var(--accent);
+}
+
+.category-table-shell table.rows.grades.entries td.autofill-range > input {
+  background: transparent !important;
+  box-shadow: none;
+}
+
+.category-table-shell table.rows.grades.entries td.autofill-source {
+  box-shadow: none !important;
+}
+
+.category-table-shell table.rows.grades.entries td.autofill-source::after {
+  z-index: 17;
+  border: 2px solid var(--accent);
+}
+
+body.autofill-dragging,
+body.autofill-dragging * {
+  cursor: crosshair !important;
+  user-select: none !important;
 }

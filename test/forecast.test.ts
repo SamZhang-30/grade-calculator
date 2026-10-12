@@ -140,6 +140,7 @@ describe("weighted variance", () => {
  */
 const PARITY = {
   ...DEFAULT_GRADE_CONFIG,
+  currentGradeWeighting: "CATEGORY_PROGRESS" as const,
   forecastPrior: FREQUENTIST_PRIOR,
   defaultBasis: "CATEGORY" as const,
 };
@@ -561,8 +562,9 @@ describe("pooling does not break the decomposition", () => {
   ];
 
   const categories = sheet();
-  const summary = summarize(categories);
-  const f = forecast(categories, summary);
+  const legacy = { ...DEFAULT_GRADE_CONFIG, currentGradeWeighting: "CATEGORY_PROGRESS" as const };
+  const summary = summarize(categories, legacy);
+  const f = forecast(categories, summary, legacy);
 
   it("splits the residual by graded points for the grade and by roster for the final", () => {
     expect(summary.pooledResidual).toBeCloseTo(0.5, 12);

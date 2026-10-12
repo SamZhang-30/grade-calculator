@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { summarize, type GradeCategory, type GradeEntry, type GradeStatus } from "../src/grade-engine/index.js";
+import {
+  DEFAULT_GRADE_CONFIG,
+  summarize,
+  type GradeCategory,
+  type GradeEntry,
+  type GradeStatus,
+} from "../src/grade-engine/index.js";
 
 /**
  * AP Lit, lifted whole out of `Grades Tracker Senior Year S2.xlsx`.
@@ -62,7 +68,10 @@ const apLit = (): GradeCategory[] => [
 ];
 
 describe("AP Lit, from the workbook", () => {
-  const result = summarize(apLit());
+  const result = summarize(apLit(), {
+    ...DEFAULT_GRADE_CONFIG,
+    currentGradeWeighting: "CATEGORY_PROGRESS",
+  });
   const [performance, process, homework, exam] = result.categories;
 
   it("renormalizes an empty category's weight onto the rest", () => {

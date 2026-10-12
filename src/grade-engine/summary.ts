@@ -5,6 +5,7 @@ import {
   canonical,
   countsTowardAtStake,
   countsTowardTotal,
+  finalWeights,
   gradedWeights,
   hasDenominator,
   isScored,
@@ -120,21 +121,31 @@ export function summarize(
   const syllabusWeightOf = (category: GradeCategory) => claimOf(category) * claimScale;
 
   const weightOf = new Map<string, number>();
+  const finalWeightOf = new Map<string, number>();
   const stakeOf = new Map<string, number>();
   const absorb = (from: Map<string, number>, into: Map<string, number>) => {
     for (const [id, value] of from) into.set(id, value);
   };
 
   for (const category of cats) {
+    absorb(finalWeights(category.entries, syllabusWeightOf(category), byMax(category)), finalWeightOf);
     absorb(atStakeWeights(category.entries, syllabusWeightOf(category), byMax(category)), stakeOf);
   }
-  for (const category of fixed) {
-    absorb(gradedWeights(category.entries, category.weight, byMax(category)), weightOf);
-  }
-  if (pooled.length > 0) {
-    // One roster, one denominator: "total points" is points-proportional by
-    // definition, so `weightByMax` does not apply across a pool.
-    absorb(gradedWeights(pooled.flatMap((c) => c.entries), residual, true), weightOf);
+  if (config.currentGradeWeighting === "FINAL_ASSIGNMENT") {
+    for (const category of cats) {
+      for (const entry of canonical(category.entries)) {
+        if (isScored(entry)) weightOf.set(entry.id, finalWeightOf.get(entry.id) ?? 0);
+      }
+    }
+  } else {
+    for (const category of fixed) {
+      absorb(gradedWeights(category.entries, category.weight, byMax(category)), weightOf);
+    }
+    if (pooled.length > 0) {
+      // One roster, one denominator: "total points" is points-proportional by
+      // definition, so `weightByMax` does not apply across a pool.
+      absorb(gradedWeights(pooled.flatMap((c) => c.entries), residual, true), weightOf);
+    }
   }
 
   const gradedWeightTotal = sumOf([...weightOf.values()]);
@@ -143,7 +154,11 @@ export function summarize(
   // One warning, both causes. It fires only when a percentage is actually
   // being shown -- an empty gradebook renormalizes nothing, so there is no
   // number to caveat and nothing to say.
-  if (scale > 0 && Math.abs(gradedWeightTotal - 1) > config.weightEpsilon) {
+  if (
+    config.currentGradeWeighting === "CATEGORY_PROGRESS" &&
+    scale > 0 &&
+    Math.abs(gradedWeightTotal - 1) > config.weightEpsilon
+  ) {
     warnings.push({
       code: "RENORMALIZED",
       detail: `Categories with graded work total ${(gradedWeightTotal * 100).toFixed(2)}% of the final grade, not 100%; the percentage shown is renormalized over that much.`,
@@ -165,6 +180,7 @@ export function summarize(
         id: entry.id,
         status: entry.status,
         weight,
+        finalWeight: finalWeightOf.get(entry.id) ?? 0,
         percent,
         impact: counted && percent !== null ? (percent - 1) * weight : 0,
         counted,
@@ -175,10 +191,12 @@ export function summarize(
     const rawPercent = categoryPercent(scored, byMax(category));
     const percent = rawPercent === null ? null : applyCurve(rawPercent, category);
     const weight = sumOf(entrySummaries.map((e) => e.weight));
+    const finalWeight = sumOf(entrySummaries.filter((e) => e.counted).map((e) => e.finalWeight));
 
     return {
       id: category.id,
       weight,
+      finalWeight,
       syllabusWeight: syllabusWeightOf(category),
       percent,
       rawPercent,
