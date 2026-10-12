@@ -203,11 +203,9 @@ const byMaxOf = (category: GradeCategoryRow | undefined) =>
   category === undefined || category.weightMode === "POOLED" ? true : category.weightByMax;
 
 const atStakeLabel = (category: CategorySummary, byMax: boolean) => {
-  if (category.atStakeCount === 0) return "—";
-  const amount = byMax
-    ? `${round(category.atStakePoints, 2)} ${category.atStakePoints === 1 ? "point" : "points"}`
-    : `${category.atStakeCount} ${category.atStakeCount === 1 ? "entry" : "entries"}`;
-  return `${amount} (${pct(category.atStakePercent)})`;
+  return byMax
+    ? `${round(category.atStakePoints, 2)} pts.`
+    : `${category.atStakeCount} ents.`;
 };
 
 /** Zero to two decimals -- the threshold `signed` and `tone` both work from. */
@@ -612,6 +610,7 @@ export function GradeSheet({
   app,
   onChanged,
   courseHeader,
+  courseIdentitySettings,
   onDeleteCourse,
 }: {
   itemId: string;
@@ -621,6 +620,7 @@ export function GradeSheet({
   app: GradeDefaults;
   onChanged: () => void;
   courseHeader: ReactNode;
+  courseIdentitySettings: ReactNode;
   onDeleteCourse: () => void;
 }) {
   const defaults = resolveDefaults(course, app);
@@ -751,6 +751,7 @@ export function GradeSheet({
             app={app}
             categories={categories}
             courseName={courseName}
+            identitySettings={courseIdentitySettings}
             onDeleteCourse={onDeleteCourse}
             run={run}
           />
@@ -829,6 +830,7 @@ function CourseCalculations({
   app,
   categories,
   courseName,
+  identitySettings,
   onDeleteCourse,
   run,
 }: {
@@ -837,6 +839,7 @@ function CourseCalculations({
   app: GradeDefaults;
   categories: GradeCategoryRow[];
   courseName: string;
+  identitySettings: ReactNode;
   onDeleteCourse: () => void;
   run: (fn: () => Promise<unknown>) => Promise<void>;
 }) {
@@ -845,14 +848,15 @@ function CourseCalculations({
     course.gradeAlpha === null ? "" : String(round((1 - course.gradeAlpha) * 100, 2)),
   );
   const [details, setDetails] = useState({
+    name: course.name,
     term: course.term,
     instructor: course.instructor,
     units: unitInputValue(course.units),
   });
 
   useEffect(() => {
-    setDetails({ term: course.term, instructor: course.instructor, units: unitInputValue(course.units) });
-  }, [course.id, course.term, course.instructor, course.units]);
+    setDetails({ name: course.name, term: course.term, instructor: course.instructor, units: unitInputValue(course.units) });
+  }, [course.id, course.name, course.term, course.instructor, course.units]);
 
   const commit = () => {
     const text = level.trim();
@@ -872,11 +876,12 @@ function CourseCalculations({
 
   const commitDetails = () => {
     const next = {
+      name: details.name.trim() || course.name,
       term: details.term.trim(),
       instructor: details.instructor.trim(),
       units: details.units.trim(),
     };
-    if (next.term === course.term && next.instructor === course.instructor && next.units === course.units) return;
+    if (next.name === course.name && next.term === course.term && next.instructor === course.instructor && next.units === course.units) return;
     void run(() => store.updateCourse(itemId, next));
   };
 
@@ -921,10 +926,15 @@ function CourseCalculations({
 
           <section className="settings-group">
             <div className="settings-group-heading">
-              <b>Course details</b>
-              <small>Information shown beneath the course title.</small>
+              <b>Course identity</b>
+              <small>Name, icon, color, and information shown in the course header.</small>
             </div>
+            {identitySettings}
             <div className="course-detail-fields">
+              <label className="field-row">
+                <span><b>Name</b><small>The name used in the header and class switcher.</small></span>
+                <input aria-label="Class name" value={details.name} onChange={(event) => setDetails({ ...details, name: event.target.value })} onBlur={commitDetails} />
+              </label>
               <label className="field-row">
                 <span><b>Term</b><small>Semester, quarter, or other academic term.</small></span>
                 <input value={details.term} placeholder="e.g. Fall 2026" onChange={(event) => setDetails({ ...details, term: event.target.value })} onBlur={commitDetails} />
@@ -1245,12 +1255,16 @@ function SummaryTable({
                     pct(c.percent)
                   )}
                 </td>
-                <td title={`Final weight represented: ${pct(c.finalWeight)}`}>{pct(c.weight)}</td>
+                <td className="weight-cell" aria-label={`Current weight ${pct(c.weight)}; final weight ${pct(c.finalWeight)}`}>
+                  <CurveSwap curved={pct(c.weight)} raw={pct(c.finalWeight)} />
+                </td>
                 <td className={c.percent === null ? undefined : tone(c.impact)}>
                   {c.percent === null ? <NotApplicable /> : signed(c.impact)}
                 </td>
                 <td>{c.percent === null ? <NotApplicable /> : pct(f.sd)}</td>
-                <td>{atStakeLabel(c, byMaxOf(category))}</td>
+                <td className="at-stake-cell">
+                  <CurveSwap curved={pct(c.atStakePercent)} raw={atStakeLabel(c, byMaxOf(category))} />
+                </td>
                 <td
                   className={`proj proj-start${curved ? " curved-cell" : ""}`}
                   title={curved ? "Curved forecast — hover to see the raw forecast" : undefined}
@@ -1281,8 +1295,11 @@ function SummaryTable({
           <tr className="total">
             <td className="sticky-col">Total</td>
             <td>{pct(summary.percent)}</td>
-            <td title={`Final weight represented: ${pct(1 - summary.atStakePercent)}`}>
-              {pct(summary.categories.reduce((sum, c) => sum + c.weight, 0))}
+            <td className="weight-cell">
+              <CurveSwap
+                curved={pct(summary.categories.reduce((sum, c) => sum + c.weight, 0))}
+                raw={pct(1 - summary.atStakePercent)}
+              />
             </td>
             <td className={tone(summary.impact)}>
               {summary.percent === null ? "—" : signed(summary.impact)}
@@ -1741,8 +1758,10 @@ function EntryRow({
         />
       </td>
       <td>{summary.percent === null ? <NotApplicable /> : pct(summary.percent)}</td>
-      <td title={summary.counted ? `Final weight: ${pct(summary.finalWeight)}` : undefined}>
-        {summary.counted ? pct(summary.weight) : <NotApplicable />}
+      <td className={summary.counted ? "weight-cell" : undefined}>
+        {summary.counted ? (
+          <CurveSwap curved={pct(summary.weight)} raw={pct(summary.finalWeight)} />
+        ) : <NotApplicable />}
       </td>
       <td className={summary.counted ? tone(summary.impact) : undefined}>
         {summary.counted ? signed(summary.impact) : <NotApplicable />}

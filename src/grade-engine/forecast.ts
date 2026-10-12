@@ -1,5 +1,6 @@
 import { DEFAULT_GRADE_CONFIG, type GradeConfig } from "./config.js";
 import { applyCurveInterval } from "./curve.js";
+import { summarize } from "./summary.js";
 import { studentTQuantile } from "./distribution.js";
 import { canonical, countsTowardAtStake, hasDenominator, isScored } from "./weights.js";
 import type { CategorySummary, EntrySummary, GradeCategory, GradeSummary } from "./types.js";
@@ -40,7 +41,7 @@ export interface CategoryForecast {
   rawResult: Interval | null;
   /** Move in the COURSE grade if the remaining work lands at the top of its band. */
   standToGain: number;
-  /** ...and at the bottom. Negative. */
+  /** ...and at the bottom. Either change may be positive or negative. */
   standToLose: number;
 }
 
@@ -135,54 +136,54 @@ export function forecast(
   const high = project((f) => f.result!.high);
   const low = project((f) => f.result!.low);
   const deadzone = (x: number) => (Math.abs(x) < config.gainLoseDeadzone ? 0 : x);
-
-  // Per-category gain/lose swaps ONE category's current average for its
-  // projected best or worst and reports the move in the COURSE grade -- so the
-  // figures are answers to "how much does this one category still matter",
-  // measured on the scale you actually care about. A category with nothing
-  // outstanding reports zero on both sides.
-  //
-  // What each category is assumed to be worth before anything is projected.
-  //
-  // A category with no marks is assumed to land at the COURSE average, not at
-  // 100%. The spreadsheet assumes 100%, and that is where its gain/lose columns
-  // go wrong: it makes the baseline sit above the current grade by a constant,
-  // and since the per-category figures subtract the current grade rather than
-  // the baseline, that constant is added to EVERY row -- so a category with
-  // nothing outstanding still reports a swing. With `?? mean` the baseline
-  // equals the current grade exactly (the graded categories' shares are
-  // proportional to their renormalized weights, so both sides collapse to the
-  // same number), the constant vanishes, and each row reports only the move its
-  // OWN outstanding work can cause. Which is what makes the column add up.
+  const finalAssignmentWeights = config.currentGradeWeighting === "FINAL_ASSIGNMENT";
+  // Preserve the category-progress model's original end-term baseline and
+  // additive category contributions when that legacy option is selected.
   const assume = (c: CategorySummary) => (c.percent ?? mean) * share(c);
-
-  /**
-   * The projected final grade if every category lands where it is currently
-   * expected to -- and the reference BOTH stand-to figures are measured from.
-   *
-   * Not the current grade. The gap between the two is real but is not
-   * something you "stand to" do anything about: it is just the arithmetic of
-   * unmarked work being excluded from today's percentage and included in the
-   * final one. Measuring against it put that gap into every category's swing,
-   * including categories with nothing outstanding.
-   *
-   * It has to be the baseline rather than `mean` because the two weightings
-   * are not proportional in general. A POOLED category's share of the current
-   * grade goes by its GRADED points while its share of the final grade goes by
-   * its whole roster, so `sum(assume) != mean` the moment two pooled
-   * categories have different proportions marked. Against the baseline the
-   * category figures sum to the course figure by construction, whatever the
-   * weighting.
-   */
   const baseline = sum(summary.categories.map(assume));
+
+  // Score only the selected category's pending work, keeping every other
+  // category exactly as it is today. Reusing the deterministic engine handles
+  // normalization, fixed/pooled weighting, and category curves consistently.
+  // Total scores ALL pending work in one scenario; it is not a sum of the
+  // independently normalized per-category changes. Forecast bands stay frozen.
+  const scenario = (bound: "low" | "high", categoryId?: string) =>
+    summarize(
+      cats.map((category, i) => {
+        if (categoryId !== undefined && category.id !== categoryId) return category;
+        const pending = category.entries.filter(
+          (entry) => countsTowardAtStake(entry.status) && hasDenominator(entry),
+        );
+        if (pending.length === 0) return category;
+        const expected = categoryForecasts[i]!.rawExpected[bound];
+        const flat = category.weightMode === "FIXED" && !category.weightByMax;
+        const pendingMax = sum(pending.map((entry) => entry.max!));
+        // Match Result's existing aggregate whole-point rounding, distributing
+        // that projected total proportionally across point-weighted rows.
+        const ratio = flat ? expected : Math.round(expected * pendingMax) / pendingMax;
+        return {
+          ...category,
+          entries: category.entries.map((entry) =>
+            countsTowardAtStake(entry.status) && hasDenominator(entry)
+              ? { ...entry, status: "RETURNED" as const, points: ratio * entry.max! }
+              : entry,
+          ),
+        };
+      }),
+      config,
+    ).percent;
 
   for (let i = 0; i < categoryForecasts.length; i++) {
     const f = categoryForecasts[i]!;
     const c = summary.categories[i]!;
-    if (f.result === null) continue;
-    const swap = (projected: number) => projected * share(c) - assume(c);
-    f.standToGain = deadzone(swap(f.result.high));
-    f.standToLose = deadzone(swap(f.result.low));
+    if (finalAssignmentWeights) {
+      if (!graded || c.atStakeCount === 0) continue;
+      f.standToGain = deadzone((scenario("high", c.id) ?? mean) - mean);
+      f.standToLose = deadzone((scenario("low", c.id) ?? mean) - mean);
+    } else if (f.result !== null) {
+      f.standToGain = deadzone(f.result.high * share(c) - assume(c));
+      f.standToLose = deadzone(f.result.low * share(c) - assume(c));
+    }
   }
 
   return {
@@ -194,8 +195,12 @@ export function forecast(
       ? clampBand(forecastCentre, band, config.capForecastAtFull, config, softAnchor(values))
       : { low: 0, high: 1 },
     result: categoryForecasts.some((f) => f.result !== null) ? { low, high } : null,
-    standToGain: deadzone(high - baseline),
-    standToLose: deadzone(low - baseline),
+    standToGain: finalAssignmentWeights
+      ? graded ? deadzone((scenario("high") ?? mean) - mean) : 0
+      : deadzone(high - baseline),
+    standToLose: finalAssignmentWeights
+      ? graded ? deadzone((scenario("low") ?? mean) - mean) : 0
+      : deadzone(low - baseline),
   };
 }
 

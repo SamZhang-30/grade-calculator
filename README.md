@@ -4,7 +4,7 @@ A browser-only grade calculator extracted from Gamified Shovel. It keeps the ori
 
 ## Features
 
-- Multiple classes with a sidebar selector and customizable colors
+- Multiple classes with a header-icon switcher and customizable icons and colors in course settings
 - Fixed or pooled category weighting
 - Points-based or equal assignment weighting
 - Final-assignment current weighting that accounts for pending work, with legacy category-progress weighting available

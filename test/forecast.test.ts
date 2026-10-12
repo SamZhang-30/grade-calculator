@@ -295,7 +295,7 @@ describe("forecast invariants", () => {
   });
 });
 
-describe("gain and lose decompose", () => {
+describe("gain and lose scenarios and legacy decomposition", () => {
   /**
    * The column has to add up.
    *
@@ -364,8 +364,9 @@ describe("gain and lose decompose", () => {
   it("category figures sum to the course figure", () => {
     fc.assert(
       fc.property(arb, (sheet) => {
-        const summary = summarize(sheet);
-        const f = forecast(sheet, summary);
+        const legacy = { ...DEFAULT_GRADE_CONFIG, currentGradeWeighting: "CATEGORY_PROGRESS" as const };
+        const summary = summarize(sheet, legacy);
+        const f = forecast(sheet, summary, legacy);
         if (summary.percent === null) return;
 
         // The deadzone rounds each figure independently, so allow one deadzone
@@ -375,6 +376,29 @@ describe("gain and lose decompose", () => {
         const lose = f.categories.reduce((s, c) => s + c.standToLose, 0);
         expect(Math.abs(gain - f.standToGain)).toBeLessThanOrEqual(slack);
         expect(Math.abs(lose - f.standToLose)).toBeLessThanOrEqual(slack);
+      }),
+    );
+  });
+
+  it("final weights compare each scenario and Total against the current grade", () => {
+    fc.assert(
+      fc.property(arb, (sheet) => {
+        const summary = summarize(sheet);
+        const f = forecast(sheet, summary);
+        if (summary.percent === null) return;
+        const decided = summary.categories.reduce((total, c) => total + c.finalWeight, 0);
+        const deadzone = (value: number) => Math.abs(value) < DEFAULT_GRADE_CONFIG.gainLoseDeadzone ? 0 : value;
+        f.categories.forEach((projected, i) => {
+          const c = summary.categories[i]!;
+          if (c.atStakeCount === 0 || !projected.result) return;
+          const change = (bound: number) =>
+            (decided * summary.percent! - c.finalWeight * (c.percent ?? 0) +
+              c.syllabusWeight * bound) / (decided + c.atStakePercent) - summary.percent!;
+          expect(projected.standToGain).toBeCloseTo(deadzone(change(projected.result.high)), 9);
+          expect(projected.standToLose).toBeCloseTo(deadzone(change(projected.result.low)), 9);
+        });
+        expect(f.standToGain).toBeCloseTo(deadzone(f.result!.high - summary.percent), 9);
+        expect(f.standToLose).toBeCloseTo(deadzone(f.result!.low - summary.percent), 9);
       }),
     );
   });
@@ -392,6 +416,49 @@ describe("gain and lose decompose", () => {
           }
         });
       }),
+    );
+  });
+
+  it.each([true, false])("keeps other pending work out of a curved-category scenario (byMax=%s)", (weightByMax) => {
+    const sheet: GradeCategory[] = [
+      {
+        id: "homework", name: "Homework", weightMode: "FIXED", weight: 0.6,
+        weightByMax: true, sortOrder: 0,
+        entries: [{ id: "h", name: "Homework", points: 90, max: 100, status: "RETURNED", sortOrder: 0 }],
+      },
+      {
+        id: "midterms", name: "Midterms", weightMode: "FIXED", weight: 0.3,
+        weightByMax, sortOrder: 1,
+        curveEnabled: true, curveMode: "ADDITIVE", curveAddend: 5, curveCap: true,
+        entries: [
+          { id: "m1", name: "Midterm 1", points: 80, max: 100, status: "RETURNED", sortOrder: 0 },
+          { id: "m2", name: "Midterm 2", points: null, max: 100, status: "PENDING", sortOrder: 1 },
+        ],
+      },
+      {
+        id: "final", name: "Final", weightMode: "FIXED", weight: 0.1,
+        weightByMax: true, sortOrder: 2,
+        entries: [{ id: "f", name: "Final", points: null, max: 100, status: "PENDING", sortOrder: 0 }],
+      },
+    ];
+    const summary = summarize(sheet);
+    const f = forecast(sheet, summary);
+    // Homework contributes .54 and the curved returned midterm .15 * .85.
+    const today = (.54 + .15 * .85) / .75;
+    expect(summary.percent).toBeCloseTo(today, 12);
+    for (const bound of ["low", "high"] as const) {
+      const midtermScore = weightByMax
+        ? Math.round(f.categories[1]!.rawExpected[bound] * 100) / 100
+        : f.categories[1]!.rawExpected[bound];
+      const curvedMidterms = Math.min(1, (.8 + midtermScore) / 2 + .05);
+      const finalScore = Math.round(f.categories[2]!.rawExpected[bound] * 100) / 100;
+      const field = bound === "high" ? "standToGain" : "standToLose";
+      expect(f.categories[1]![field]).toBeCloseTo((.54 + .3 * curvedMidterms) / .9 - today, 9);
+      expect(f.categories[2]![field]).toBeCloseTo((.54 + .15 * .85 + .1 * finalScore) / .85 - today, 9);
+      expect(f[field]).toBeCloseTo(.54 + .3 * curvedMidterms + .1 * finalScore - today, 9);
+    }
+    expect(f.standToGain).not.toBeCloseTo(
+      f.categories.reduce((total, category) => total + category.standToGain, 0), 5,
     );
   });
 });

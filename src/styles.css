@@ -2363,7 +2363,7 @@ body,
 }
 
 .summary-scroll-frame table.rows.grades:not(.entries) {
-  min-width: calc(880px + var(--summary-name-width));
+  min-width: calc(var(--summary-name-width) + 9 * var(--figure) + var(--band-gap) + 1px);
 }
 
 .summary-scroll-frame table.rows.grades .col-name {
@@ -2371,7 +2371,7 @@ body,
 }
 
 .summary-scroll-frame table.rows.grades .col-stake {
-  width: 197px;
+  width: var(--figure);
 }
 
 .summary-scroll-frame table.rows.grades th.sticky-col,
@@ -2587,6 +2587,18 @@ body.resizing-name-column * {
 }
 
 .summary-table-shell table.rows.grades tbody td.curved-cell:hover .curve-raw {
+  display: inline;
+}
+
+/* Current weights reveal their unnormalized end-term share in the cell,
+   using the same swap as curved scores in both summary and assignment tables. */
+table.rows.grades td.weight-cell:hover .curve-applied,
+table.rows.grades td.at-stake-cell:hover .curve-applied {
+  display: none;
+}
+
+table.rows.grades td.weight-cell:hover .curve-raw,
+table.rows.grades td.at-stake-cell:hover .curve-raw {
   display: inline;
 }
 
@@ -4666,12 +4678,12 @@ table.rows.grades input:focus {
   width: 42px;
   height: 42px;
   border-radius: 12px;
-  box-shadow: 0 5px 14px rgba(0, 0, 0, 0.28), inset 0 0 0 3px rgba(255, 255, 255, 0.035);
+  box-shadow: inset 0 0 0 3px rgba(255, 255, 255, 0.035);
   font-size: 21px;
 }
 
 .course-emoji-trigger:hover {
-  box-shadow: 0 7px 18px rgba(0, 0, 0, 0.36), inset 0 0 0 3px rgba(255, 255, 255, 0.055);
+  box-shadow: inset 0 0 0 3px rgba(255, 255, 255, 0.055);
 }
 
 .course-title-input {
@@ -5168,7 +5180,7 @@ body,
 }
 
 .summary-scroll-frame table.rows.grades:not(.entries) {
-  min-width: calc(880px + var(--summary-name-width));
+  min-width: calc(var(--summary-name-width) + 9 * var(--figure) + var(--band-gap) + 1px);
 }
 
 .summary-scroll-frame table.rows.grades .col-name {
@@ -5176,7 +5188,7 @@ body,
 }
 
 .summary-scroll-frame table.rows.grades .col-stake {
-  width: 197px;
+  width: var(--figure);
 }
 
 .summary-scroll-frame table.rows.grades th.sticky-col,
@@ -5340,4 +5352,109 @@ body.autofill-dragging,
 body.autofill-dragging * {
   cursor: crosshair !important;
   user-select: none !important;
+}
+
+/* Class navigation lives beside the course title, leaving the full viewport
+   available to the gradebook on both desktop and mobile. */
+.main-panel {
+  margin-left: 0;
+}
+
+.course-head {
+  top: 0 !important;
+  border-top: 0;
+}
+
+.course-title {
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+  font-size: 22px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  line-height: 1.35;
+}
+
+.class-switcher-backdrop {
+  position: fixed;
+  z-index: 100;
+  inset: 0;
+}
+
+.class-switcher {
+  position: absolute;
+  width: min(360px, calc(100vw - 24px));
+  max-height: calc(100vh - 120px);
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #202320;
+  padding: 10px;
+  color: var(--text);
+  box-shadow: 0 14px 36px #0008;
+}
+
+.class-switcher-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 7px 7px;
+  color: var(--dim);
+  font-size: 11px;
+  letter-spacing: .055em;
+  text-transform: uppercase;
+}
+
+.class-switcher-settings {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  border: 0;
+  border-top: 1px solid var(--line-soft);
+  background: transparent;
+  padding: 12px 9px 4px;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.class-switcher-settings svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.35;
+}
+
+.course-settings-modal .appearance-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+  margin: 0;
+}
+
+.course-settings-modal .appearance-fields .emoji-input {
+  width: 70px !important;
+  text-align: center;
+}
+
+.course-settings-modal .custom-color-combo {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+}
+
+.course-settings-modal .custom-color-combo input[type="color"] {
+  width: 40px;
+  flex: 0 0 40px;
+  padding: 3px;
+}
+
+.course-settings-modal .custom-color-combo input:not([type="color"]) {
+  width: 110px;
 }

@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import {
   DEFAULT_GRADE_CONFIG,
   summarize,
@@ -50,14 +51,6 @@ function SettingsIcon() {
   );
 }
 
-function MenuIcon() {
-  return (
-    <svg viewBox="0 0 20 20" aria-hidden="true">
-      <path d="M3.5 5.5h13M3.5 10h13M3.5 14.5h13" />
-    </svg>
-  );
-}
-
 function currentGrade(course: Course, app: AppSettings): string {
   const defaults = resolveDefaults(course, app);
   const categories = course.categories.map((category) => ({
@@ -77,42 +70,7 @@ function currentGrade(course: Course, app: AppSettings): string {
   return summary.percent === null ? "—" : `${Math.round(summary.percent * 100)}%`;
 }
 
-function CourseTitle({ course, onChanged }: { course: Course; onChanged: () => void }) {
-  const [name, setName] = useState(course.name);
-  useEffect(() => setName(course.name), [course.id, course.name]);
-
-  const commit = async () => {
-    const next = name.trim();
-    if (!next) {
-      setName(course.name);
-      return;
-    }
-    if (next === course.name) return;
-    await store.updateCourse(course.id, { name: next });
-    onChanged();
-  };
-
-  return (
-    <input
-      className="course-title-input"
-      title={name}
-      value={name}
-      onChange={(event) => setName(event.target.value)}
-      onBlur={() => void commit()}
-      onKeyDown={(event) => {
-        if (event.key === "Enter") event.currentTarget.blur();
-        if (event.key === "Escape") {
-          setName(course.name);
-          event.currentTarget.blur();
-        }
-      }}
-      aria-label="Class name"
-    />
-  );
-}
-
-function AppearanceControl({ course, onChanged }: { course: Course; onChanged: () => void }) {
-  const [open, setOpen] = useState(false);
+function CourseAppearanceFields({ course, onChanged }: { course: Course; onChanged: () => void }) {
   const [emoji, setEmoji] = useState(course.emoji);
   const [color, setColor] = useState(course.color);
 
@@ -142,81 +100,52 @@ function AppearanceControl({ course, onChanged }: { course: Course; onChanged: (
   };
 
   return (
-    <div className="appearance-control">
-      <button
-        className="course-emoji-trigger"
-        style={{ "--course-color": course.color } as CSSProperties}
-        onClick={() => setOpen(!open)}
-        aria-label={`Change icon or color for ${course.name}`}
-        aria-expanded={open}
-      >
-        {course.emoji}
-      </button>
-      {open ? (
-        <div className="modal-backdrop grade-modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setOpen(false)}>
-          <section className="settings-dialog appearance-dialog" role="dialog" aria-modal="true" aria-labelledby="appearance-title">
-            <div className="dialog-head">
-              <div>
-                <p className="eyebrow">Course identity</p>
-                <h2 id="appearance-title">Icon and color</h2>
-              </div>
-              <button className="icon-button" onClick={() => setOpen(false)} aria-label="Close course appearance">×</button>
-            </div>
-            <p className="dialog-intro">Use any emoji and accent color combination.</p>
-            <div className="appearance-fields">
-              <label className="field-row">
-                <span><b>Emoji</b><small>Use one symbol to identify this course.</small></span>
-                <input
-                  className="emoji-input"
-                  value={emoji}
-                  maxLength={8}
-                  onChange={(event) => setEmoji(event.target.value)}
-                  onBlur={commitEmoji}
-                  onKeyDown={(event) => event.key === "Enter" && event.currentTarget.blur()}
-                  aria-label="Course emoji"
-                />
-              </label>
-              <label className="field-row">
-                <span><b>Accent color</b><small>Used for highlights, borders, and the course header.</small></span>
-                <div className="custom-color-combo">
-                  <input
-                    type="color"
-                    value={/^#[0-9a-f]{6}$/i.test(color) ? color : course.color}
-                    onChange={(event) => {
-                      setColor(event.target.value);
-                      void update({ color: event.target.value });
-                    }}
-                    aria-label="Course accent color"
-                  />
-                  <input
-                    value={color.toUpperCase()}
-                    onChange={(event) => setColor(event.target.value)}
-                    onBlur={commitColor}
-                    onKeyDown={(event) => event.key === "Enter" && event.currentTarget.blur()}
-                    aria-label="Course accent hex value"
-                  />
-                </div>
-              </label>
-            </div>
-            <div className="dialog-footer">
-              <span>Changes are saved automatically.</span>
-              <button className="primary-button" onClick={() => setOpen(false)}>Done</button>
-            </div>
-          </section>
+    <div className="appearance-fields course-detail-fields">
+      <label className="field-row">
+        <span><b>Emoji</b><small>Use one symbol to identify this course.</small></span>
+        <input
+          className="emoji-input"
+          value={emoji}
+          maxLength={8}
+          onChange={(event) => setEmoji(event.target.value)}
+          onBlur={commitEmoji}
+          onKeyDown={(event) => event.key === "Enter" && event.currentTarget.blur()}
+          aria-label="Course emoji"
+        />
+      </label>
+      <label className="field-row">
+        <span><b>Accent color</b><small>Used for highlights, borders, and the course header.</small></span>
+        <div className="custom-color-combo">
+          <input
+            type="color"
+            value={/^#[0-9a-f]{6}$/i.test(color) ? color : course.color}
+            onChange={(event) => {
+              setColor(event.target.value);
+              void update({ color: event.target.value });
+            }}
+            aria-label="Course accent color"
+          />
+          <input
+            value={color.toUpperCase()}
+            onChange={(event) => setColor(event.target.value)}
+            onBlur={commitColor}
+            onKeyDown={(event) => event.key === "Enter" && event.currentTarget.blur()}
+            aria-label="Course accent hex value"
+          />
         </div>
-      ) : null}
+      </label>
     </div>
   );
 }
 
-function CourseIdentity({ course, onChanged }: { course: Course; onChanged: () => void }) {
+function CourseIdentity({ course, switcher }: { course: Course; switcher: ReactNode }) {
   const units = formatUnits(course.units);
   const subtitle = [course.term, course.instructor, units].filter(Boolean).join(" • ");
   return (
     <div className="course-identity">
-      <AppearanceControl course={course} onChanged={onChanged} />
+      {switcher}
       <div className="course-identity-copy">
-        <CourseTitle course={course} onChanged={onChanged} />
+        <h1 className="course-title" title={course.name}>{course.name}</h1>
         <p
           className={`course-subtitle${subtitle ? "" : " empty"}`}
           title={subtitle || "Add course details in settings"}
@@ -225,6 +154,94 @@ function CourseIdentity({ course, onChanged }: { course: Course; onChanged: () =
         </p>
       </div>
     </div>
+  );
+}
+
+function CourseSwitcher({
+  active, courses, grades, onSelect, onAdd, onSettings,
+}: {
+  active: Course;
+  courses: Course[];
+  grades: Map<string, string>;
+  onSelect: (id: string) => void;
+  onAdd: () => void;
+  onSettings: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const [position, setPosition] = useState({ top: 0, left: 0 });
+  const close = () => {
+    setOpen(false);
+    trigger.current?.focus();
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    const positionMenu = () => {
+      const rect = trigger.current?.getBoundingClientRect();
+      if (rect) setPosition({
+        top: Math.max(12, Math.min(rect.bottom + 8, window.innerHeight - 220)),
+        left: Math.max(12, Math.min(rect.left, window.innerWidth - Math.min(360, window.innerWidth - 24) - 12)),
+      });
+    };
+    positionMenu();
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setOpen(false);
+        trigger.current?.focus();
+      }
+    };
+    window.addEventListener("resize", positionMenu);
+    window.addEventListener("keydown", escape);
+    return () => {
+      window.removeEventListener("resize", positionMenu);
+      window.removeEventListener("keydown", escape);
+    };
+  }, [open]);
+
+  return (
+    <>
+      <button
+        ref={trigger}
+        className="course-emoji-trigger"
+        style={{ "--course-color": active.color } as CSSProperties}
+        onClick={() => setOpen(!open)}
+        aria-label="Switch classes"
+        aria-expanded={open}
+        aria-haspopup="dialog"
+      >{active.emoji}</button>
+      {open ? createPortal(
+        <div className="class-switcher-backdrop" onMouseDown={(event) => event.target === event.currentTarget && close()}>
+          <section className="class-switcher" style={position} role="dialog" aria-label="Switch classes">
+            <div className="class-switcher-heading">
+              <b>Classes</b>
+              <button className="icon-button" aria-label="Close class switcher" onClick={close}>×</button>
+            </div>
+            <nav className="course-list" aria-label="Classes">
+              {courses.map((course) => (
+                <button
+                  key={course.id}
+                  autoFocus={course.id === active.id}
+                  className={course.id === active.id ? "active" : ""}
+                  style={{ "--course-color": course.color } as CSSProperties}
+                  aria-current={course.id === active.id ? "page" : undefined}
+                  title={course.name}
+                  onClick={() => { onSelect(course.id); close(); }}
+                >
+                  <i className="course-emoji">{course.emoji}</i>
+                  <span>{course.name}</span>
+                  <b>{grades.get(course.id)}</b>
+                </button>
+              ))}
+            </nav>
+            <button className="add-course" onClick={() => { close(); onAdd(); }}>+ Add a class</button>
+            <button className="class-switcher-settings" onClick={() => { close(); onSettings(); }}>
+              <SettingsIcon /> Global grade settings
+            </button>
+          </section>
+        </div>, document.body,
+      ) : null}
+    </>
   );
 }
 
@@ -351,7 +368,6 @@ function AppSettingsDialog({
 export default function App() {
   const [data, setData] = useState<AppData>(() => loadData());
   const [activeId, setActiveId] = useState(initialCourseId);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -388,7 +404,6 @@ export default function App() {
       setActiveId(course.id);
       setNewName("");
       setAdding(false);
-      setSidebarOpen(false);
       setError("");
     } catch (cause) {
       setError((cause as Error).message);
@@ -408,89 +423,25 @@ export default function App() {
 
   return (
     <div className="app-shell" style={accentStyle}>
-      <button
-        className={`sidebar-scrim${sidebarOpen ? " visible" : ""}`}
-        onClick={() => setSidebarOpen(false)}
-        aria-label="Close class sidebar"
-      />
-      <aside className={`sidebar${sidebarOpen ? " open" : ""}`}>
-        <div className="brand">
-          <span className="brand-mark">G</span>
-          <div>
-            <strong>Gradebook</strong>
-            <span>Local calculator</span>
-          </div>
-        </div>
-
-        <div className="sidebar-label">
-          <span>Classes</span>
-          <button onClick={() => setAdding(true)} aria-label="Add class">+</button>
-        </div>
-
-        <nav className="course-list" aria-label="Classes">
-          {data.courses.map((course) => (
-            <button
-              key={course.id}
-              className={course.id === active?.id ? "active" : ""}
-              style={{ "--course-color": course.color } as CSSProperties}
-              onClick={() => {
-                setActiveId(course.id);
-                setSidebarOpen(false);
-              }}
-            >
-              <i className="course-emoji" style={{ "--course-color": course.color } as CSSProperties}>{course.emoji}</i>
-              <span>{course.name}</span>
-              <b>{gradeByCourse.get(course.id)}</b>
-            </button>
-          ))}
-        </nav>
-
-        {adding ? (
-          <div className="add-course-form">
-            <input
-              autoFocus
-              placeholder="Class name"
-              value={newName}
-              onChange={(event) => setNewName(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") void addCourse();
-                if (event.key === "Escape") setAdding(false);
-              }}
-            />
-            <button className="primary-button" onClick={() => void addCourse()} disabled={!newName.trim()}>Add</button>
-            <button className="text-button" onClick={() => setAdding(false)}>Cancel</button>
-          </div>
-        ) : (
-          <button className="add-course" onClick={() => setAdding(true)}>+ Add a class</button>
-        )}
-
-        <div className="sidebar-footer">
-          <span className="saved-dot" />
-          <span>Private to this browser</span>
-          <button onClick={() => setSettingsOpen(true)} aria-label="Grade settings">
-            <SettingsIcon />
-          </button>
-        </div>
-      </aside>
-
       <main className="main-panel">
-        <header className="mobile-head">
-          <button className="icon-button" onClick={() => setSidebarOpen(true)} aria-label="Open class sidebar"><MenuIcon /></button>
-          <strong>Gradebook</strong>
-          <button className="icon-button" onClick={() => setSettingsOpen(true)} aria-label="Grade settings"><SettingsIcon /></button>
-        </header>
 
         {active ? (
           <div className="workspace">
             <div className="gradebook-wrap">
               <GradeSheet
+                key={active.id}
                 itemId={active.id}
                 courseName={active.name}
                 categories={active.categories}
                 course={active}
                 app={data.settings}
                 onChanged={refresh}
-                courseHeader={<CourseIdentity course={active} onChanged={refresh} />}
+                courseHeader={<CourseIdentity course={active} switcher={
+                  <CourseSwitcher active={active} courses={data.courses} grades={gradeByCourse}
+                    onSelect={setActiveId} onAdd={() => setAdding(true)}
+                    onSettings={() => setSettingsOpen(true)} />
+                } />}
+                courseIdentitySettings={<CourseAppearanceFields course={active} onChanged={refresh} />}
                 onDeleteCourse={() => setDeleting(true)}
               />
             </div>
@@ -506,6 +457,28 @@ export default function App() {
 
         {error ? <div className="toast" role="alert">{error}</div> : null}
       </main>
+
+      {adding ? (
+        <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setAdding(false)}>
+          <section className="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="add-class-title"
+            onKeyDown={(event) => event.key === "Escape" && setAdding(false)}>
+            <div className="dialog-head">
+              <h2 id="add-class-title">Add a class</h2>
+              <button className="icon-button" onClick={() => setAdding(false)} aria-label="Close add class">×</button>
+            </div>
+            <form onSubmit={(event) => { event.preventDefault(); void addCourse(); }}>
+              <label className="field-row">
+                <span><b>Class name</b></span>
+                <input autoFocus value={newName} onChange={(event) => setNewName(event.target.value)} />
+              </label>
+              <div className="dialog-footer">
+                <button type="button" className="secondary-button" onClick={() => setAdding(false)}>Cancel</button>
+                <button className="primary-button" disabled={!newName.trim()}>Add</button>
+              </div>
+            </form>
+          </section>
+        </div>
+      ) : null}
 
       {settingsOpen ? (
         <AppSettingsDialog settings={data.settings} onClose={() => setSettingsOpen(false)} onChanged={refresh} />
