@@ -1,9 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { calculateGpa, formatGpa, gradePoints, gpaCourseResult, GPA_EXCLUDED, normalizeGpaTerms, type GpaCourse } from "../src/gpa";
+import { calculateGpa, formatGpa, gradePoints, gpaCourseResult, parseGpaUnits, totalCoursework, GPA_EXCLUDED, normalizeGpaTerms, type GpaCourse } from "../src/gpa";
 
 const course = (grade: GpaCourse["grade"], units: number | null): GpaCourse => ({ id: "test", name: "Course", grade, units });
 
 describe("Stanford GPA", () => {
+  it("reports total coursework separately from GPA-counted units", () => {
+    const courses = [course("A", 5), course("CR", 3), course("", 2), course("NP", 4), course("A", null)];
+    expect(totalCoursework(courses)).toEqual({ units: 14, courseCount: 4 });
+    expect(calculateGpa(courses).units).toBe(9);
+    expect(totalCoursework([course("S", 1)])).toEqual({ units: 1, courseCount: 1 });
+    expect(totalCoursework([course("A", 0), course("A", -1), course("A", NaN), course("A", Infinity)]))
+      .toEqual({ units: 0, courseCount: 1 });
+  });
   it("displays GPA with exactly four decimal places", () => {
     expect(formatGpa(3.28)).toBe("3.2800");
     expect(formatGpa(23 / 6)).toBe("3.8333");
@@ -33,14 +41,36 @@ describe("Stanford GPA", () => {
     expect(calculateGpa([course("A", 5), course(grade, 100)]))
       .toEqual({ gpa: 4, units: 5, qualityPoints: 20, countedCourses: 1 });
   });
-  it("excludes blank grades, missing, nonpositive, and nonfinite units", () => {
+  it("excludes blank grades, missing, negative, fractional, and nonfinite units", () => {
     expect(calculateGpa([course("", 4), course("A", null)])).toEqual({ gpa: null, units: 0, qualityPoints: 0, countedCourses: 0 });
-    for (const units of [0, -1, NaN, Infinity]) expect(gpaCourseResult(course("A", units)).counted).toBe(false);
+    for (const units of [-1, .5, NaN, Infinity]) expect(gpaCourseResult(course("A", units)).counted).toBe(false);
     expect(gradePoints("toString")).toBeNull();
   });
   it("weights terms by course units, not by averaging term GPAs", () => {
     expect(calculateGpa([course("A", 5), course("B", 1)]).gpa).toBeCloseTo(23 / 6, 12);
-    expect(calculateGpa([course("A+", .5), course("NP", .5)]).gpa).toBe(2.15);
+    expect(calculateGpa([course("A+", 1), course("NP", 1)]).gpa).toBe(2.15);
+  });
+  it("accepts zero units without dividing by zero or changing a positive-unit GPA", () => {
+    const zero = course("A", 0);
+    expect(gpaCourseResult(zero)).toEqual({ points: 4, counted: true, units: 0, qualityPoints: 0 });
+    expect(calculateGpa([zero])).toEqual({ gpa: null, units: 0, qualityPoints: 0, countedCourses: 1 });
+    expect(calculateGpa([zero, course("B", 3)]).gpa).toBe(3);
+  });
+  it("parses only nonnegative whole-number unit input", () => {
+    expect(parseGpaUnits("0")).toBe(0);
+    expect(parseGpaUnits(" 005 ")).toBe(5);
+    expect(parseGpaUnits(" ")).toBeNull();
+    for (const value of ["-1", "-0", "1.5", "1.0", "1e3", "NaN", "Infinity", "abc", "9007199254740992"]) {
+      expect(parseGpaUnits(value)).toBeUndefined();
+    }
+  });
+  it("preserves zero and existing fractional units on read, but excludes fractions from calculations", () => {
+    const terms = normalizeGpaTerms([{ id: "term", name: "Term", courses: [
+      { ...course("A", 0), id: "zero" }, { ...course("A", 1.5), id: "fraction" },
+    ] }]);
+    expect(terms[0]!.courses.map((item) => item.units)).toEqual([0, 1.5]);
+    expect(calculateGpa(terms[0]!.courses).gpa).toBeNull();
+    expect(totalCoursework(terms[0]!.courses)).toEqual({ units: 0, courseCount: 1 });
   });
   it("does not deduplicate repeated names; transcript RP controls exclusion", () => {
     expect(calculateGpa([course("RP", 3), course("B", 3)]).gpa).toBe(3);

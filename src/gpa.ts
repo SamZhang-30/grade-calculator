@@ -29,12 +29,38 @@ export interface GpaTerm {
   name: string;
   courses: GpaCourse[];
 }
+
+export const validGpaUnits = (value: unknown): value is number =>
+  typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+
+/** Blank is unset; undefined marks invalid input without discarding a draft. */
+export function parseGpaUnits(text: string): number | null | undefined {
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+  if (!/^\d+$/.test(trimmed)) return undefined;
+  const value = Number(trimmed);
+  return validGpaUnits(value) ? value : undefined;
+}
+
+/** Total entered coursework, including grades excluded from the GPA. */
+export function totalCoursework(courses: readonly GpaCourse[]) {
+  let units = 0;
+  let courseCount = 0;
+  for (const course of courses) {
+    if (validGpaUnits(course.units)) {
+      units += course.units;
+      courseCount++;
+    }
+  }
+  return { units, courseCount };
+}
+
 export function gradePoints(grade: string): number | null {
   return Object.hasOwn(GPA_POINTS, grade) ? GPA_POINTS[grade as keyof typeof GPA_POINTS] : null;
 }
 export function gpaCourseResult(course: GpaCourse) {
   const points = gradePoints(course.grade);
-  const validUnits = typeof course.units === "number" && Number.isFinite(course.units) && course.units > 0;
+  const validUnits = validGpaUnits(course.units);
   const counted = points !== null && validUnits;
   return { points, counted, units: counted ? course.units! : 0,
     qualityPoints: counted ? points! * course.units! : 0 };
@@ -64,7 +90,10 @@ export function normalizeGpaTerms(value: unknown): GpaTerm[] {
       ids.add(course.id);
       return [{ id: course.id, name: typeof course.name === "string" ? course.name : "",
         grade: GPA_GRADES.includes(course.grade) ? course.grade : "",
-        units: typeof course.units === "number" && Number.isFinite(course.units) && course.units > 0 ? course.units : null }];
+        // Keep previously accepted fractional values visible for correction,
+        // rather than silently erasing or rounding them. Calculations exclude
+        // them under the whole-unit rule, and the input flags them as invalid.
+        units: typeof course.units === "number" && Number.isFinite(course.units) && course.units >= 0 ? course.units : null }];
     });
     return [{ id: term.id, name: typeof term.name === "string" ? term.name : "Untitled term", courses }];
   });

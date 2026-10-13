@@ -1,5 +1,5 @@
 import { useLayoutEffect, useState, type ReactNode } from "react";
-import { calculateGpa, formatGpa as displayGpa, gpaCourseResult, GPA_SOURCE, type GpaCourse, type GpaTerm } from "../gpa";
+import { calculateGpa, formatGpa as displayGpa, gpaCourseResult, parseGpaUnits, totalCoursework, validGpaUnits, GPA_SOURCE, type GpaCourse, type GpaTerm } from "../gpa";
 import { store } from "../store";
 import { useHistoryRevision } from "../history-ui";
 import { DuplicateIcon, GearIcon, GradeModal, PlusIcon, ScrollViewport, TrashIcon } from "./GradeSheet";
@@ -16,7 +16,10 @@ export function GpaSheet({ terms, switcher, historyControls, onChanged }: {
 }) {
   const [newTerm, setNewTerm] = useState("");
   const [error, setError] = useState("");
-  const total = calculateGpa(terms.flatMap((term) => term.courses));
+  const courses = terms.flatMap((term) => term.courses);
+  const total = calculateGpa(courses);
+  const coursework = totalCoursework(courses);
+  const courseworkUnits = number(coursework.units);
   const run: Run = async (action) => {
     try { await action(); onChanged(); setError(""); }
     catch (cause) { setError((cause as Error).message); }
@@ -26,7 +29,7 @@ export function GpaSheet({ terms, switcher, historyControls, onChanged }: {
       <header className="course-head">
         <div className="course-identity">
           {switcher}
-          <div className="course-copy">
+          <div className="course-identity-copy">
             <h1 className="course-title">GPA Calculator</h1>
             <p className="course-subtitle">Stanford • Unit-weighted • 4.3 scale</p>
           </div>
@@ -37,8 +40,8 @@ export function GpaSheet({ terms, switcher, historyControls, onChanged }: {
       <section className="grade-overview">
         <div className="forecast-highlights">
           <div className="forecast-card"><span>Cumulative GPA</span><strong>{displayGpa(total.gpa)}</strong><small>Across all included terms</small></div>
-          <div className="forecast-card"><span>GPA units</span><strong>{number(total.units)}</strong><small>{total.countedCourses} courses counted</small></div>
-          <div className="forecast-card"><span>Grade points</span><strong>{number(total.qualityPoints)}</strong><small>Grade value × applicable units</small></div>
+          <div className="forecast-card"><span>GPA units</span><strong>{number(total.units)}</strong><small>{courseworkUnits} {courseworkUnits === "1" ? "unit" : "units"} total across {coursework.courseCount} {coursework.courseCount === 1 ? "course" : "courses"}</small></div>
+          <div className="forecast-card"><span>Grade points</span><strong>{total.qualityPoints.toFixed(1)}</strong><small>Grade value × applicable units</small></div>
         </div>
         {terms.length ? (
           <div className="summary-table-shell gpa-summary-shell">
@@ -85,6 +88,8 @@ function TermTable({ term, run }: { term: GpaTerm; run: Run }) {
   const revision = useHistoryRevision();
   useLayoutEffect(() => setName(term.name), [term.name, revision]);
   const result = calculateGpa(term.courses);
+  const gpaUnits = number(result.units);
+  const totalUnits = number(totalCoursework(term.courses).units);
   const saveName = () => {
     if (!name.trim()) { setName(term.name); return; }
     if (name.trim() !== term.name) void run(() => store.renameGpaTerm(term.id, name));
@@ -92,7 +97,7 @@ function TermTable({ term, run }: { term: GpaTerm; run: Run }) {
   return (
     <section className="grade-category gpa-term">
       <div className="grade-head">
-        <div className="grade-heading"><h4>{term.name}</h4><p className="weight-line">GPA: {displayGpa(result.gpa)} • {number(result.units)} GPA units</p></div>
+        <div className="grade-heading"><h4>{term.name}</h4><p className="weight-line">GPA: {displayGpa(result.gpa)} • {gpaUnits} GPA {gpaUnits === "1" ? "unit" : "units"} • {totalUnits} {totalUnits === "1" ? "unit" : "units"} total</p></div>
         <button className="ghost icon add-assignment" aria-label={`Add course to ${term.name}`} onClick={() => void run(() => store.addGpaCourse(term.id))}><PlusIcon /></button>
         <span className="popover-host"><button className={`ghost icon${panel === "settings" ? " open" : ""}`} aria-label={`Settings for ${term.name}`} onClick={() => setPanel("settings")}><GearIcon /></button></span>
         <span className="popover-host"><button className="ghost icon danger" aria-label={`Delete term ${term.name}`} onClick={() => setPanel("delete")}><TrashIcon /></button></span>
@@ -128,16 +133,18 @@ function TermTable({ term, run }: { term: GpaTerm; run: Run }) {
 function CourseRow({ course, rowLabel, run }: { course: GpaCourse; rowLabel: string; run: Run }) {
   const [name, setName] = useState(course.name);
   const [units, setUnits] = useState(course.units === null ? "" : String(course.units));
-  const [invalidUnits, setInvalidUnits] = useState(false);
+  const [invalidUnits, setInvalidUnits] = useState(course.units !== null && !validGpaUnits(course.units));
   const revision = useHistoryRevision();
   useLayoutEffect(() => {
-    setName(course.name); setUnits(course.units === null ? "" : String(course.units)); setInvalidUnits(false);
+    setName(course.name); setUnits(course.units === null ? "" : String(course.units));
+    setInvalidUnits(course.units !== null && !validGpaUnits(course.units));
   }, [course.name, course.units, revision]);
   const result = gpaCourseResult(course);
   const commitUnits = () => {
-    const value = units.trim() ? Number(units) : null;
-    if (value !== null && (!Number.isFinite(value) || value <= 0)) { setInvalidUnits(true); return; }
+    const value = parseGpaUnits(units);
+    if (value === undefined) { setInvalidUnits(true); return; }
     setInvalidUnits(false);
+    setUnits(value === null ? "" : String(value));
     if (value !== course.units) void run(() => store.updateGpaCourse(course.id, { units: value }));
   };
   return (
@@ -145,9 +152,9 @@ function CourseRow({ course, rowLabel, run }: { course: GpaCourse; rowLabel: str
       <td><input aria-label={`${rowLabel} name`} placeholder="—" value={name} onChange={(event) => setName(event.target.value)} onBlur={() => name !== course.name && void run(() => store.updateGpaCourse(course.id, { name }))} onKeyDown={(event) => event.key === "Enter" && event.currentTarget.blur()} /></td>
       <td><GpaGradePicker grade={course.grade} label={`${rowLabel} grade`}
         onSelect={(grade) => void run(() => store.updateGpaCourse(course.id, { grade }))} /></td>
-      <td><input aria-label={`${rowLabel} units`} inputMode="decimal" placeholder="—" value={units} aria-invalid={invalidUnits} title={invalidUnits ? "Enter a positive number of units or leave blank." : "Applicable course units"} onChange={(event) => { setUnits(event.target.value); setInvalidUnits(false); }} onBlur={commitUnits} onKeyDown={(event) => event.key === "Enter" && event.currentTarget.blur()} /></td>
-      <td className={result.points === null ? "gpa-na" : ""}>{result.points === null ? "N/A" : result.points.toFixed(2)}</td>
-      <td className={!result.counted ? "gpa-na" : ""} title={!result.counted ? "Excluded until a GPA grade and positive units are entered." : "Grade value × units"}>{result.counted ? number(result.qualityPoints) : "N/A"}</td>
+      <td><input aria-label={`${rowLabel} units`} inputMode="numeric" pattern="[0-9]*" placeholder="—" value={units} aria-invalid={invalidUnits} title={invalidUnits ? "Enter a whole number of units (0 or more), or leave blank." : "Applicable course units (whole numbers, 0 or more)"} onChange={(event) => { setUnits(event.target.value); setInvalidUnits(false); }} onBlur={commitUnits} onKeyDown={(event) => event.key === "Enter" && event.currentTarget.blur()} /></td>
+      <td className={result.points === null ? "gpa-na" : ""}>{result.points === null ? "N/A" : result.points.toFixed(1)}</td>
+      <td className={!result.counted ? "gpa-na" : ""} title={!result.counted ? "Excluded until a GPA grade and valid whole-number units are entered." : "Grade value × units"}>{result.counted ? result.qualityPoints.toFixed(1) : "N/A"}</td>
       <td className="gpa-row-actions">
         <button className="ghost icon" aria-label={`Duplicate ${rowLabel}`} title="Duplicate course" onClick={() => void run(() => store.duplicateGpaCourse(course.id))}><DuplicateIcon /></button>
         <button className="ghost icon danger" aria-label={`Delete ${rowLabel}`} title="Delete course" onClick={() => void run(() => store.deleteGpaCourse(course.id))}><TrashIcon /></button>

@@ -44,8 +44,17 @@ describe("undo and redo", () => {
     expect(loadData().gpaTerms).toEqual([]);
     const term = await store.addGpaTerm("Term");
     const before = loadData();
-    expect(() => store.updateGpaCourse(term.courses[0]!.id, { units: -1 })).toThrow("positive");
+    expect(() => store.updateGpaCourse(term.courses[0]!.id, { units: -1 })).toThrow("whole number");
+    expect(() => store.updateGpaCourse(term.courses[0]!.id, { units: 1.5 })).toThrow("whole number");
     expect(loadData()).toEqual(before);
+  });
+  it("persists zero-unit GPA courses and supports undo/redo of zero-unit edits", async () => {
+    const term = await store.addGpaTerm("Term");
+    await store.updateGpaCourse(term.courses[0]!.id, { grade: "A", units: 5 });
+    await store.updateGpaCourse(term.courses[0]!.id, { units: 0 });
+    expect(loadData().gpaTerms[0]!.courses[0]!.units).toBe(0);
+    expect(store.undo()!.gpaTerms[0]!.courses[0]!.units).toBe(5);
+    expect(store.redo()!.gpaTerms[0]!.courses[0]!.units).toBe(0);
   });
   it("restores category deletion and gradebook import atomically", async () => {
     const before = loadData();

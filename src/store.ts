@@ -11,7 +11,7 @@ import {
   type GradeStatus,
   type WeightMode,
 } from "./grade-engine";
-import { GPA_GRADES, normalizeGpaTerms, type GpaTerm, type GpaCourse } from "./gpa";
+import { GPA_GRADES, normalizeGpaTerms, validGpaUnits, type GpaTerm, type GpaCourse } from "./gpa";
 
 /** The engine's shapes plus the editable fields the interface stores. */
 export interface GradeEntryRow extends GradeEntry {
@@ -366,8 +366,8 @@ export const store = {
   }),
   updateGpaCourse: (id: string, patch: Partial<Pick<GpaCourse, "name" | "grade" | "units">>) => mutate((data) => {
     if (patch.grade !== undefined && !GPA_GRADES.includes(patch.grade)) throw new Error("Choose a Stanford grade.");
-    if (patch.units !== undefined && patch.units !== null && (!Number.isFinite(patch.units) || patch.units <= 0)) {
-      throw new Error("Units must be a positive number or blank.");
+    if (patch.units !== undefined && patch.units !== null && !validGpaUnits(patch.units)) {
+      throw new Error("Units must be a whole number (0 or more), or blank.");
     }
     Object.assign(gpaCourseById(data, id), patch);
   }),
