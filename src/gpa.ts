@@ -16,6 +16,7 @@ export const GPA_EXCLUDED = ["CR", "S", "NC", "W", "I", "GNR", "RP", "N", "N-", 
 export type GpaGrade = keyof typeof GPA_POINTS | typeof GPA_EXCLUDED[number] | "";
 export const GPA_GRADES: readonly string[] = [...Object.keys(GPA_POINTS), ...GPA_EXCLUDED, ""];
 export const GPA_SOURCE = "https://studentservices.stanford.edu/my-academics/evaluations-exams-grades/grades/how-do-i-calculate-my-grade-point-average-gpa";
+export const formatGpa = (value: number | null) => value === null ? "N/A" : value.toFixed(4);
 
 export interface GpaCourse {
   id: string;

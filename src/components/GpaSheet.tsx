@@ -1,19 +1,18 @@
 import { useLayoutEffect, useState, type ReactNode } from "react";
-import { calculateGpa, gpaCourseResult, GPA_EXCLUDED, GPA_POINTS, GPA_SOURCE, type GpaCourse, type GpaGrade, type GpaTerm } from "../gpa";
+import { calculateGpa, formatGpa as displayGpa, gpaCourseResult, GPA_SOURCE, type GpaCourse, type GpaTerm } from "../gpa";
 import { store } from "../store";
 import { useHistoryRevision } from "../history-ui";
 import { DuplicateIcon, GearIcon, GradeModal, PlusIcon, ScrollViewport, TrashIcon } from "./GradeSheet";
+import { GpaGradePicker } from "./GpaGradePicker";
 
-const displayGpa = (value: number | null) => value === null ? "N/A" : value.toFixed(2);
 const number = (value: number) => Number(value.toFixed(2)).toString();
 type Run = (action: () => Promise<unknown>) => Promise<void>;
 
-export function GpaSheet({ terms, switcher, historyControls, onChanged, courseNames }: {
+export function GpaSheet({ terms, switcher, historyControls, onChanged }: {
   terms: GpaTerm[];
   switcher: ReactNode;
   historyControls: ReactNode;
   onChanged: () => void;
-  courseNames: string[];
 }) {
   const [newTerm, setNewTerm] = useState("");
   const [error, setError] = useState("");
@@ -42,7 +41,7 @@ export function GpaSheet({ terms, switcher, historyControls, onChanged, courseNa
           <div className="forecast-card"><span>Grade points</span><strong>{number(total.qualityPoints)}</strong><small>Grade value × applicable units</small></div>
         </div>
         {terms.length ? (
-          <div className="category-table-shell gpa-summary-shell">
+          <div className="summary-table-shell gpa-summary-shell">
             <ScrollViewport className="gpa-summary-scroll">
               <table className="rows gpa-table gpa-summary" aria-label="GPA by term">
                 <thead><tr><th scope="col">Term</th><th scope="col">GPA</th><th scope="col">GPA units</th><th scope="col">Grade points</th></tr></thead>
@@ -51,7 +50,7 @@ export function GpaSheet({ terms, switcher, historyControls, onChanged, courseNa
                     const result = calculateGpa(term.courses);
                     return <tr key={term.id}><th scope="row">{term.name}</th><td className={result.gpa === null ? "gpa-na" : ""}>{displayGpa(result.gpa)}</td><td>{number(result.units)}</td><td>{number(result.qualityPoints)}</td></tr>;
                   })}
-                  <tr className="total"><th scope="row">Total</th><td>{displayGpa(total.gpa)}</td><td>{number(total.units)}</td><td>{number(total.qualityPoints)}</td></tr>
+                  <tr className="total"><th scope="row">Total</th><td className={total.gpa === null ? "gpa-na" : ""}>{displayGpa(total.gpa)}</td><td>{number(total.units)}</td><td>{number(total.qualityPoints)}</td></tr>
                 </tbody>
               </table>
             </ScrollViewport>
@@ -66,7 +65,6 @@ export function GpaSheet({ terms, switcher, historyControls, onChanged, courseNa
         </details>
       </section>
 
-      <datalist id="gpa-course-names">{[...new Set(courseNames)].map((name) => <option key={name} value={name} />)}</datalist>
       {terms.map((term) => <TermTable key={term.id} term={term} run={run} />)}
       <form className="gpa-add-term" onSubmit={(event) => {
         event.preventDefault();
@@ -103,8 +101,8 @@ function TermTable({ term, run }: { term: GpaTerm; run: Run }) {
         <div className="category-table-shell">
           <ScrollViewport className="gpa-course-scroll">
             <table className="rows gpa-table gpa-courses" aria-label={`Courses in ${term.name}`}>
-              <colgroup><col className="gpa-name" /><col className="gpa-grade" /><col className="gpa-units" /><col className="gpa-value" /><col className="gpa-quality" /><col className="gpa-actions" /></colgroup>
-              <thead><tr><th scope="col">Course</th><th scope="col">Grade</th><th scope="col">Units</th><th scope="col">Grade value</th><th scope="col">Grade points</th><th scope="col">Actions</th></tr></thead>
+              <colgroup><col className="gpa-name" /><col span={4} className="gpa-figure" /><col className="gpa-actions" /></colgroup>
+              <thead><tr><th scope="col">Course</th><th scope="col">Grade</th><th scope="col">Units</th><th scope="col">Value</th><th scope="col">Points</th><th scope="col">Actions</th></tr></thead>
               <tbody>{term.courses.map((course, index) => <CourseRow key={course.id} course={course} rowLabel={`${term.name} course ${index + 1}`} run={run} />)}</tbody>
             </table>
           </ScrollViewport>
@@ -144,13 +142,9 @@ function CourseRow({ course, rowLabel, run }: { course: GpaCourse; rowLabel: str
   };
   return (
     <tr className={result.counted ? "" : "gpa-uncounted"}>
-      <td><input list="gpa-course-names" aria-label={`${rowLabel} name`} placeholder="—" value={name} onChange={(event) => setName(event.target.value)} onBlur={() => name !== course.name && void run(() => store.updateGpaCourse(course.id, { name }))} onKeyDown={(event) => event.key === "Enter" && event.currentTarget.blur()} /></td>
-      <td><select aria-label={`${rowLabel} grade`} value={course.grade} onChange={(event) => void run(() => store.updateGpaCourse(course.id, { grade: event.target.value as GpaGrade }))}>
-        <option value="">—</option>
-        <optgroup label="Stanford letter grades">{Object.entries(GPA_POINTS).filter(([grade]) => !grade.startsWith("GSB:")).map(([grade, points]) => <option key={grade} value={grade}>{grade}{grade === "L" ? " (temporary)" : ""} · {points.toFixed(1)}</option>)}</optgroup>
-        <optgroup label="Excluded from GPA">{GPA_EXCLUDED.map((grade) => <option key={grade} value={grade}>{grade}</option>)}</optgroup>
-        <optgroup label="GSB (not MBA / MSx)">{Object.entries(GPA_POINTS).filter(([grade]) => grade.startsWith("GSB:")).map(([grade, points]) => <option key={grade} value={grade}>GSB {grade.slice(4)} · {points.toFixed(2)}</option>)}</optgroup>
-      </select></td>
+      <td><input aria-label={`${rowLabel} name`} placeholder="—" value={name} onChange={(event) => setName(event.target.value)} onBlur={() => name !== course.name && void run(() => store.updateGpaCourse(course.id, { name }))} onKeyDown={(event) => event.key === "Enter" && event.currentTarget.blur()} /></td>
+      <td><GpaGradePicker grade={course.grade} label={`${rowLabel} grade`}
+        onSelect={(grade) => void run(() => store.updateGpaCourse(course.id, { grade }))} /></td>
       <td><input aria-label={`${rowLabel} units`} inputMode="decimal" placeholder="—" value={units} aria-invalid={invalidUnits} title={invalidUnits ? "Enter a positive number of units or leave blank." : "Applicable course units"} onChange={(event) => { setUnits(event.target.value); setInvalidUnits(false); }} onBlur={commitUnits} onKeyDown={(event) => event.key === "Enter" && event.currentTarget.blur()} /></td>
       <td className={result.points === null ? "gpa-na" : ""}>{result.points === null ? "N/A" : result.points.toFixed(2)}</td>
       <td className={!result.counted ? "gpa-na" : ""} title={!result.counted ? "Excluded until a GPA grade and positive units are entered." : "Grade value × units"}>{result.counted ? number(result.qualityPoints) : "N/A"}</td>

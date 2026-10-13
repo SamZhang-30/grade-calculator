@@ -11,7 +11,7 @@ import { loadData, store, type AppData, type AppSettings, type Course } from "./
 import { formatUnits } from "./units";
 import { HistoryRevisionContext, useHistoryRevision } from "./history-ui";
 import { GpaSheet } from "./components/GpaSheet";
-import { calculateGpa } from "./gpa";
+import { calculateGpa, formatGpa } from "./gpa";
 
 const PALETTE = [
   "#8b7cf6",
@@ -252,7 +252,9 @@ function CourseSwitcher({
       moved: false, order: courses.map((course) => course.id) };
   };
 
-  useEffect(() => {
+  // Measure and commit the portal's placement before the browser paints it.
+  // A normal effect lets the initial (or previously cached) coordinates flash.
+  useLayoutEffect(() => {
     if (!open) return;
     const positionMenu = () => {
       const rect = trigger.current?.getBoundingClientRect();
@@ -324,7 +326,7 @@ function CourseSwitcher({
                   aria-current={active.id === GPA_VIEW_ID ? "page" : undefined}
                   autoFocus={active.id === GPA_VIEW_ID}
                   onClick={() => { close(); onGpa(); }}>
-                  <i className="course-emoji">🎓</i><span>GPA Calculator</span><b>{gpa === null ? "—" : gpa.toFixed(2)}</b>
+                  <i className="course-emoji">🎓</i><span>GPA Calculator</span><b>{gpa === null ? "—" : formatGpa(gpa)}</b>
                 </button>
               </nav>
             </section>
@@ -607,7 +609,7 @@ export default function App() {
         {gpaSelected ? (
           <div className="workspace"><div className="gradebook-wrap">
             <GpaSheet terms={data.gpaTerms} switcher={courseSwitcher} historyControls={historyControls}
-              courseNames={data.courses.map((course) => course.name)} onChanged={refresh} />
+              onChanged={refresh} />
           </div></div>
         ) : active ? (
           <div className="workspace">

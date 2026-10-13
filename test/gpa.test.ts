@@ -1,9 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { calculateGpa, gradePoints, gpaCourseResult, GPA_EXCLUDED, normalizeGpaTerms, type GpaCourse } from "../src/gpa";
+import { calculateGpa, formatGpa, gradePoints, gpaCourseResult, GPA_EXCLUDED, normalizeGpaTerms, type GpaCourse } from "../src/gpa";
 
 const course = (grade: GpaCourse["grade"], units: number | null): GpaCourse => ({ id: "test", name: "Course", grade, units });
 
 describe("Stanford GPA", () => {
+  it("displays GPA with exactly four decimal places", () => {
+    expect(formatGpa(3.28)).toBe("3.2800");
+    expect(formatGpa(23 / 6)).toBe("3.8333");
+    expect(formatGpa(4.3)).toBe("4.3000");
+    expect(formatGpa(0)).toBe("0.0000");
+    expect(formatGpa(null)).toBe("N/A");
+  });
   it("matches Stanford's published 3.28 example", () => {
     const result = calculateGpa([course("B-", 3), course("A-", 4), course("B+", 3)]);
     expect(result.gpa).toBeCloseTo(3.28, 12);
