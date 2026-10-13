@@ -26,6 +26,7 @@ import {
   type Interval,
   type WeightMode,
 } from "../grade-engine";
+import { signedChange as signed, changeTone as tone } from "../grade-display";
 import { autofillAssignmentName } from "../autofill";
 import {
   api,
@@ -36,6 +37,7 @@ import {
   type GradeEntryRow,
 } from "../store";
 import { unitInputValue } from "../units";
+import { useHistoryRevision } from "../history-ui";
 
 /**
  * Forecast settings resolve down three layers: app, then course, then category.
@@ -97,7 +99,7 @@ const STATUS_CYCLE: GradeStatus[] = ["POSSIBLE", "PENDING", "ESTIMATED", "RETURN
  * uses to mean nothing at all, so on a row full of controls it reads as one
  * more setting. A bin does not.
  */
-function GearIcon() {
+export function GearIcon() {
   return (
     <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" fill="none"
       stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round">
@@ -107,7 +109,7 @@ function GearIcon() {
   );
 }
 
-function PlusIcon() {
+export function PlusIcon() {
   return (
     <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" fill="none"
       stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
@@ -126,11 +128,21 @@ function CalculatorIcon() {
   );
 }
 
-function TrashIcon() {
+export function TrashIcon() {
   return (
     <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" fill="none"
       stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round">
       <path d="M2.5 4h11M6.4 4V2.6h3.2V4M4.1 4l.6 9.2a1 1 0 0 0 1 .9h4.6a1 1 0 0 0 1-.9L12 4M6.6 6.8v4.4M9.4 6.8v4.4" />
+    </svg>
+  );
+}
+
+export function DuplicateIcon() {
+  return (
+    <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" fill="none"
+      stroke="currentColor" strokeWidth="1.25" strokeLinejoin="round">
+      <rect x="5" y="5" width="8" height="8" rx="1" />
+      <path d="M3 10H2V2h8v1" />
     </svg>
   );
 }
@@ -179,18 +191,6 @@ function NotApplicable() {
 }
 
 /**
- * A signed percentage -- but only when there is a sign to give.
- *
- * A value that rounds to zero at the precision shown has no direction, and
- * printing "+0.00%" invents one. Zero reads as zero; the sign is reserved for
- * numbers that actually moved something.
- */
-const signed = (x: number) => {
-  const magnitude = Math.abs(x * 100).toFixed(2);
-  return magnitude === "0.00" ? "0.00%" : `${x > 0 ? "+" : "−"}${magnitude}%`;
-};
-
-/**
  * How much is still undecided, counted in the unit the category is weighed in.
  *
  * A points-weighted category is missing POINTS; an evenly weighted one is
@@ -207,20 +207,6 @@ const atStakeLabel = (category: CategorySummary, byMax: boolean) => {
     ? `${round(category.atStakePoints, 2)} pts.`
     : `${category.atStakeCount} ents.`;
 };
-
-/** Zero to two decimals -- the threshold `signed` and `tone` both work from. */
-const isZero = (x: number) => Math.abs(x * 100).toFixed(2) === "0.00";
-
-/**
- * Impact is coloured by its SIGN: red when it drags the grade down, green when
- * it pushes it up, and plain text at exactly zero, where "no effect" is the
- * whole message and a colour would invent one.
- *
- * Stand to gain and stand to lose are different: they are not signed
- * quantities but two named directions, so they keep their colour whatever the
- * arithmetic says. See `SummaryRow`.
- */
-const tone = (x: number) => (isZero(x) ? "" : x > 0 ? "good" : "bad");
 
 /** A projection reads as one number when its ends round together, else a range. */
 const range = (interval: Interval | null) => {
@@ -307,7 +293,10 @@ function applyDrag(categories: GradeCategoryRow[], drag: Drag | null): GradeCate
     }
     const index = Math.max(0, Math.min(drag.overIndex, entries.length));
     return { ...category, entries: [...entries.slice(0, index), moving, ...entries.slice(index)] };
-  });
+  }).map((category) => ({
+    ...category,
+    entries: category.entries.map((entry, sortOrder) => ({ ...entry, sortOrder })),
+  }));
 }
 
 const orderOf = (categories: GradeCategoryRow[]) =>
@@ -346,7 +335,7 @@ function usePopover(commit?: () => void) {
 
 /** A horizontal table viewport that advertises hidden content only on the edge
  * where more columns actually exist. The fade spans the viewer's full height. */
-function ScrollViewport({ children, className = "" }: { children: ReactNode; className?: string }) {
+export function ScrollViewport({ children, className = "" }: { children: ReactNode; className?: string }) {
   const ref = useRef<HTMLDivElement | null>(null);
   const [edges, setEdges] = useState({ left: false, right: false });
 
@@ -364,7 +353,7 @@ function ScrollViewport({ children, className = "" }: { children: ReactNode; cla
     });
   };
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const node = ref.current;
     if (!node) return;
     const update = () => updateEdges(node);
@@ -388,7 +377,7 @@ function ScrollViewport({ children, className = "" }: { children: ReactNode; cla
   );
 }
 
-function GradeModal({
+export function GradeModal({
   children,
   onClose,
   className = "",
@@ -611,6 +600,7 @@ export function GradeSheet({
   onChanged,
   courseHeader,
   courseIdentitySettings,
+  historyControls,
   onDeleteCourse,
 }: {
   itemId: string;
@@ -621,6 +611,7 @@ export function GradeSheet({
   onChanged: () => void;
   courseHeader: ReactNode;
   courseIdentitySettings: ReactNode;
+  historyControls: ReactNode;
   onDeleteCourse: () => void;
 }) {
   const defaults = resolveDefaults(course, app);
@@ -692,24 +683,28 @@ export function GradeSheet({
       setDrag(next);
     };
 
-    const end = () => {
+    const finish = (commit: boolean) => {
       const dropped = dragRef.current;
       dragRef.current = null;
       setDrag(null);
-      if (dropped) commitRef.current(dropped);
+      if (dropped && commit) commitRef.current(dropped);
     };
+
+    const end = () => finish(true);
+    const cancel = () => finish(false);
 
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", end);
-    window.addEventListener("pointercancel", end);
+    window.addEventListener("pointercancel", cancel);
     return () => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", end);
-      window.removeEventListener("pointercancel", end);
+      window.removeEventListener("pointercancel", cancel);
     };
   }, [dragging]);
 
   const startDrag = (event: React.PointerEvent, entryId: string, categoryId: string) => {
+    if (event.button !== 0) return;
     event.preventDefault();
     const index = categories
       .find((c) => c.id === categoryId)!
@@ -745,6 +740,7 @@ export function GradeSheet({
         {courseHeader}
         <div className="head-actions course-toolbar">
           <WarningIndicator warnings={summary.warnings} />
+          {historyControls}
           <CourseCalculations
             itemId={itemId}
             course={course}
@@ -844,9 +840,13 @@ function CourseCalculations({
   run: (fn: () => Promise<unknown>) => Promise<void>;
 }) {
   const resolved = resolveDefaults(course, app);
+  const historyRevision = useHistoryRevision();
   const [level, setLevel] = useState(
     course.gradeAlpha === null ? "" : String(round((1 - course.gradeAlpha) * 100, 2)),
   );
+  useLayoutEffect(() => {
+    setLevel(course.gradeAlpha === null ? "" : String(round((1 - course.gradeAlpha) * 100, 2)));
+  }, [course.gradeAlpha, historyRevision]);
   const [details, setDetails] = useState({
     name: course.name,
     term: course.term,
@@ -854,9 +854,9 @@ function CourseCalculations({
     units: unitInputValue(course.units),
   });
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     setDetails({ name: course.name, term: course.term, instructor: course.instructor, units: unitInputValue(course.units) });
-  }, [course.id, course.name, course.term, course.instructor, course.units]);
+  }, [course.id, course.name, course.term, course.instructor, course.units, historyRevision]);
 
   const commit = () => {
     const text = level.trim();
@@ -886,11 +886,11 @@ function CourseCalculations({
   };
 
   const inherits =
-    course.gradeAlpha === null &&
-    course.gradeBasis === null &&
-    course.gradeIncludeEstimates === null &&
-    course.gradeCapForecast === null &&
-    course.gradeCurrentWeighting === null;
+    Math.abs(resolved.gradeAlpha - app.gradeAlpha) < 1e-9 &&
+    resolved.gradeBasis === app.gradeBasis &&
+    resolved.gradeIncludeEstimates === app.gradeIncludeEstimates &&
+    resolved.gradeCapForecast === app.gradeCapForecast &&
+    resolved.gradeCurrentWeighting === app.gradeCurrentWeighting;
 
   const close = () => {
     commit();
@@ -1283,10 +1283,10 @@ function SummaryTable({
                 </td>
                 {/* "—" means the category cannot be projected at all; a plain
                     0.00% means it can, and the answer is that nothing moves. */}
-                <td className={`proj ${f.result && !isZero(f.standToGain) ? "good" : ""}`}>
+                <td className={`proj ${f.result ? tone(f.standToGain) : ""}`}>
                   {f.result ? signed(f.standToGain) : "—"}
                 </td>
-                <td className={`proj ${f.result && !isZero(f.standToLose) ? "bad" : ""}`}>
+                <td className={`proj ${f.result ? tone(f.standToLose) : ""}`}>
                   {f.result ? signed(f.standToLose) : "—"}
                 </td>
               </tr>
@@ -1308,10 +1308,10 @@ function SummaryTable({
             <td>{pct(summary.atStakePercent)}</td>
             <td className="proj proj-start">{range(prediction.expected)}</td>
             <td className="proj">{range(prediction.result)}</td>
-            <td className={`proj ${prediction.result && !isZero(prediction.standToGain) ? "good" : ""}`}>
+            <td className={`proj ${prediction.result ? tone(prediction.standToGain) : ""}`}>
               {prediction.result ? signed(prediction.standToGain) : "—"}
             </td>
-            <td className={`proj ${prediction.result && !isZero(prediction.standToLose) ? "bad" : ""}`}>
+            <td className={`proj ${prediction.result ? tone(prediction.standToLose) : ""}`}>
               {prediction.result ? signed(prediction.standToLose) : "—"}
             </td>
           </tr>
@@ -1577,20 +1577,16 @@ function CategoryTable({
               <th>Percent</th>
               <th>Weight</th>
               <th>Impact</th>
-              <th>Notes</th>
-              <th />
+              <th className="notes-head">Notes</th>
+              <th className="row-actions">Actions</th>
             </tr>
           </thead>
           <tbody data-category={category.id}>
             {category.entries.map((entry, i) => (
-              // Keyed by the fields the row holds in LOCAL state -- name,
-              // points, max, notes -- because `useState` would otherwise never
-              // see a value the server changed underneath it. Status is read
-              // straight from props and needs no resync, and including it made
-              // every status click remount the row: the delete button restarted
-              // its reveal transition from zero and flickered.
+              // Keep the row and its controls mounted through edits and
+              // reordering. EntryRow synchronizes committed values separately.
               <EntryRow
-                key={`${entry.id}:${entry.name}:${entry.points}:${entry.max}:${entry.notes}`}
+                key={entry.id}
                 entry={entry}
                 summary={summary.entries[i]!}
                 dragging={draggingId === entry.id}
@@ -1636,9 +1632,17 @@ function EntryRow({
   run: (fn: () => Promise<unknown>) => Promise<void>;
 }) {
   const [name, setName] = useState(entry.name);
+  const historyRevision = useHistoryRevision();
   const [points, setPoints] = useState(entry.points === null ? "" : String(entry.points));
   const [max, setMax] = useState(entry.max === null ? "" : String(entry.max));
   const [notes, setNotes] = useState(entry.notes ?? "");
+
+  useLayoutEffect(() => {
+    setName(entry.name);
+    setPoints(entry.points === null ? "" : String(entry.points));
+    setMax(entry.max === null ? "" : String(entry.max));
+    setNotes(entry.notes ?? "");
+  }, [entry.name, entry.points, entry.max, entry.notes, historyRevision]);
 
   const save = (body: Parameters<typeof api.updateGradeEntry>[1]) =>
     run(() => api.updateGradeEntry(entry.id, body));
@@ -1775,6 +1779,14 @@ function EntryRow({
       </td>
       <td className="row-actions">
         <button
+          className="ghost icon reveal"
+          onClick={() => run(() => api.duplicateGradeEntry(entry.id))}
+          aria-label={`Duplicate ${entry.name}`}
+          title={`Duplicate ${entry.name}`}
+        >
+          <DuplicateIcon />
+        </button>
+        <button
           className="ghost icon danger reveal"
           onClick={() => run(() => api.deleteGradeEntry(entry.id))}
           aria-label={`Delete ${entry.name}`}
@@ -1807,12 +1819,21 @@ function CategorySettings({
   run: (fn: () => Promise<unknown>) => Promise<void>;
 }) {
   const [name, setName] = useState(category.name);
+  const historyRevision = useHistoryRevision();
   const [weight, setWeight] = useState(
     category.weightMode === "POOLED" ? "" : String(round(category.weight * 100, 2)),
   );
   const [curveAddend, setCurveAddend] = useState(String(category.curveAddend ?? 0));
   const [curveMultiplier, setCurveMultiplier] = useState(String(category.curveMultiplier ?? 100));
   const [curveExpression, setCurveExpression] = useState(category.curveExpression ?? "x");
+
+  useLayoutEffect(() => {
+    setName(category.name);
+    setWeight(category.weightMode === "POOLED" ? "" : String(round(category.weight * 100, 2)));
+    setCurveAddend(String(category.curveAddend ?? 0));
+    setCurveMultiplier(String(category.curveMultiplier ?? 100));
+    setCurveExpression(category.curveExpression ?? "x");
+  }, [category.name, category.weightMode, category.weight, category.curveAddend, category.curveMultiplier, category.curveExpression, historyRevision]);
 
   const curveDraft = {
     ...category,
@@ -2073,9 +2094,13 @@ function CategoryCalculations({
   defaults: GradeDefaults;
   run: (fn: () => Promise<unknown>) => Promise<void>;
 }) {
+  const historyRevision = useHistoryRevision();
   const [level, setLevel] = useState(
     category.alphaOverride === null ? "" : String(round((1 - category.alphaOverride) * 100, 2)),
   );
+  useLayoutEffect(() => {
+    setLevel(category.alphaOverride === null ? "" : String(round((1 - category.alphaOverride) * 100, 2)));
+  }, [category.alphaOverride, historyRevision]);
 
   const commit = () => {
     const text = level.trim();
@@ -2100,7 +2125,7 @@ function CategoryCalculations({
   const estimates = category.includeEstimates ?? defaults.gradeIncludeEstimates;
   const cap = category.capForecast ?? defaults.gradeCapForecast;
   const overridden =
-    category.alphaOverride !== null ||
+    Math.abs((category.alphaOverride ?? defaults.gradeAlpha) - defaults.gradeAlpha) > 1e-9 ||
     basis !== defaults.gradeBasis ||
     estimates !== defaults.gradeIncludeEstimates ||
     cap !== defaults.gradeCapForecast;
@@ -2244,11 +2269,9 @@ function StatusGuide() {
 /**
  * Deleting a category, with a step in between.
  *
- * A category takes every assignment under it, and there is no undo. One
- * mis-aimed click on a row of three icons should not be able to erase a
- * term's worth of marks, so the trash opens a question rather than a hole.
- * Individual assignments stay one click -- they are cheap to retype, and
- * confirming each one would make ordinary tidying unbearable.
+ * A category takes every assignment under it. Confirm this bulk change to
+ * avoid accidental deletion, even though session history can restore it.
+ * Individual assignments stay one click so ordinary tidying stays quick.
  */
 function DeleteCategory({
   category,
@@ -2276,7 +2299,7 @@ function DeleteCategory({
             Delete <b>{category.name}</b>
             {count > 0 ? ` and its ${count} assignment${count === 1 ? "" : "s"}` : ""}?
           </p>
-          <p className="note">This cannot be undone.</p>
+          <p className="note">You can undo this during the current session. Undo history resets when you reload.</p>
           <div className="confirm-actions">
             <button className="ghost tiny" onClick={() => setOpen(false)}>
               Cancel
@@ -2456,7 +2479,7 @@ function Transfer({
                 <br />
                 {"Its forecast settings replace this course's too."}
                 <br />
-                This cannot be undone — export first if you want a way back.
+                You can undo this during the current session. Undo history resets when you reload; export first for a lasting backup.
               </p>
               <div className="confirm-actions">
                 <button className="ghost tiny" onClick={() => setOpen(false)}>

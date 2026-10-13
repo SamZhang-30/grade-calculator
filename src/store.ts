@@ -11,6 +11,7 @@ import {
   type GradeStatus,
   type WeightMode,
 } from "./grade-engine";
+import { GPA_GRADES, normalizeGpaTerms, type GpaTerm, type GpaCourse } from "./gpa";
 
 /** The engine's shapes plus the editable fields the interface stores. */
 export interface GradeEntryRow extends GradeEntry {
@@ -64,6 +65,7 @@ export interface AppData {
   version: 1;
   settings: AppSettings;
   courses: Course[];
+  gpaTerms: GpaTerm[];
 }
 
 const STORAGE_KEY = "gradebook.data.v1";
@@ -75,6 +77,7 @@ const uid = (prefix: string) =>
 
 const starterData = (): AppData => ({
   version: 1,
+  gpaTerms: [],
   settings: {
     gradeAlpha: DEFAULT_GRADE_CONFIG.alpha,
     gradeBasis: DEFAULT_GRADE_CONFIG.defaultBasis,
@@ -196,6 +199,7 @@ export function loadData(): AppData {
   try {
     const parsed = JSON.parse(raw) as AppData;
     if (parsed.version !== 1 || !Array.isArray(parsed.courses)) throw new Error("Unsupported data");
+    parsed.gpaTerms = normalizeGpaTerms(parsed.gpaTerms);
     // Metadata was added after the first release. Normalizing on read keeps
     // existing local gradebooks valid without a disruptive storage migration.
     parsed.settings = {
@@ -248,20 +252,63 @@ export function loadData(): AppData {
 }
 
 function saveData(data: AppData) {
-  inMemory = data;
   const target = storage();
-  if (!target) return;
-  try {
-    target.setItem(STORAGE_KEY, JSON.stringify(data));
-  } catch {
-    throw new Error("Your browser could not save this change. Check local storage permissions.");
+  if (target) {
+    try {
+      target.setItem(STORAGE_KEY, JSON.stringify(data));
+    } catch {
+      throw new Error("Your browser could not save this change. Check local storage permissions.");
+    }
   }
+  inMemory = data;
+}
+
+type HistoryStep = { before: string; after: string };
+const undoSteps: HistoryStep[] = [];
+const redoSteps: HistoryStep[] = [];
+const historyListeners = new Set<() => void>();
+let historyCurrent: string | null = null;
+const notifyHistory = () => historyListeners.forEach((listener) => listener());
+
+function syncHistory(current: string) {
+  // A different tab or an external restore must not be overwritten by an old
+  // undo stack. History covers this editing session, not browser reloads.
+  if (historyCurrent !== null && current !== historyCurrent) {
+    undoSteps.length = 0;
+    redoSteps.length = 0;
+  }
+  historyCurrent = current;
+}
+
+function restoreHistory(direction: "undo" | "redo"): AppData | null {
+  syncHistory(JSON.stringify(loadData()));
+  const from = direction === "undo" ? undoSteps : redoSteps;
+  const to = direction === "undo" ? redoSteps : undoSteps;
+  const step = from.at(-1);
+  if (!step) { notifyHistory(); return null; }
+  const snapshot = direction === "undo" ? step.before : step.after;
+  const restored = JSON.parse(snapshot) as AppData;
+  saveData(restored);
+  from.pop();
+  to.push(step);
+  historyCurrent = snapshot;
+  notifyHistory();
+  return structuredClone(restored);
 }
 
 function mutate<T>(fn: (data: AppData) => T): Promise<T> {
   const data = loadData();
+  const before = JSON.stringify(data);
+  syncHistory(before);
   const result = fn(data);
+  const after = JSON.stringify(data);
+  if (after === before) return Promise.resolve(result);
   saveData(data);
+  undoSteps.push({ before, after });
+  if (undoSteps.length > 100) undoSteps.shift();
+  redoSteps.length = 0;
+  historyCurrent = after;
+  notifyHistory();
   return Promise.resolve(result);
 }
 
@@ -286,7 +333,78 @@ function entryById(data: AppData, id: string): GradeEntryRow {
   return entry;
 }
 
+function gpaTermById(data: AppData, id: string): GpaTerm {
+  const term = data.gpaTerms.find((item) => item.id === id);
+  if (!term) throw new Error("That term no longer exists.");
+  return term;
+}
+
+function gpaCourseById(data: AppData, id: string): GpaCourse {
+  const course = data.gpaTerms.flatMap((term) => term.courses).find((item) => item.id === id);
+  if (!course) throw new Error("That GPA course no longer exists.");
+  return course;
+}
+
 export const store = {
+  addGpaTerm: (name: string) => mutate((data) => {
+    const term: GpaTerm = { id: uid("gpa-term"), name: name.trim() || "Untitled term",
+      courses: [{ id: uid("gpa-course"), name: "", grade: "", units: null }] };
+    data.gpaTerms.push(term);
+    return term;
+  }),
+  renameGpaTerm: (id: string, name: string) => mutate((data) => {
+    if (!name.trim()) throw new Error("Enter a term name.");
+    gpaTermById(data, id).name = name.trim();
+  }),
+  deleteGpaTerm: (id: string) => mutate((data) => {
+    data.gpaTerms = data.gpaTerms.filter((term) => term.id !== id);
+  }),
+  addGpaCourse: (termId: string) => mutate((data) => {
+    const course: GpaCourse = { id: uid("gpa-course"), name: "", grade: "", units: null };
+    gpaTermById(data, termId).courses.push(course);
+    return course;
+  }),
+  updateGpaCourse: (id: string, patch: Partial<Pick<GpaCourse, "name" | "grade" | "units">>) => mutate((data) => {
+    if (patch.grade !== undefined && !GPA_GRADES.includes(patch.grade)) throw new Error("Choose a Stanford grade.");
+    if (patch.units !== undefined && patch.units !== null && (!Number.isFinite(patch.units) || patch.units <= 0)) {
+      throw new Error("Units must be a positive number or blank.");
+    }
+    Object.assign(gpaCourseById(data, id), patch);
+  }),
+  duplicateGpaCourse: (id: string) => mutate((data) => {
+    const term = data.gpaTerms.find((item) => item.courses.some((course) => course.id === id));
+    if (!term) throw new Error("That GPA course no longer exists.");
+    const index = term.courses.findIndex((course) => course.id === id);
+    const copy = { ...term.courses[index]!, id: uid("gpa-course") };
+    term.courses.splice(index + 1, 0, copy);
+    return copy;
+  }),
+  deleteGpaCourse: (id: string) => mutate((data) => {
+    for (const term of data.gpaTerms) term.courses = term.courses.filter((course) => course.id !== id);
+  }),
+  undo: () => restoreHistory("undo"),
+  redo: () => restoreHistory("redo"),
+  historyState: () => ({ canUndo: undoSteps.length > 0, canRedo: redoSteps.length > 0 }),
+  subscribeHistory: (listener: () => void) => {
+    historyListeners.add(listener);
+    return () => { historyListeners.delete(listener); };
+  },
+  clearHistory: () => {
+    undoSteps.length = 0;
+    redoSteps.length = 0;
+    historyCurrent = null;
+    notifyHistory();
+  },
+  reorderCourses: (ids: string[]) =>
+    mutate((data) => {
+      const byId = new Map(data.courses.map((course) => [course.id, course]));
+      if (ids.length !== data.courses.length || new Set(ids).size !== ids.length ||
+          ids.some((id) => !byId.has(id))) {
+        throw new Error("The class list changed. Try reordering it again.");
+      }
+      data.courses = ids.map((id) => byId.get(id)!);
+    }),
+
   createCourse: (name: string, color: string) =>
     mutate((data) => {
       const course: Course = {
@@ -429,6 +547,19 @@ export const api = {
 
   updateGradeEntry: (id: string, patch: GradeEntryPatch) =>
     mutate((data) => Object.assign(entryById(data, id), patch)),
+
+  duplicateGradeEntry: (id: string) =>
+    mutate((data) => {
+      for (const category of data.courses.flatMap((course) => course.categories)) {
+        const index = category.entries.findIndex((entry) => entry.id === id);
+        if (index < 0) continue;
+        const duplicate = { ...category.entries[index]!, id: uid("entry") };
+        category.entries.splice(index + 1, 0, duplicate);
+        category.entries.forEach((entry, sortOrder) => { entry.sortOrder = sortOrder; });
+        return duplicate;
+      }
+      throw new Error("That assignment no longer exists.");
+    }),
 
   updateGradeEntries: (updates: { id: string; patch: GradeEntryPatch }[]) =>
     mutate((data) => {

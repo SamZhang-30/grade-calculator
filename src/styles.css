@@ -5275,8 +5275,8 @@ body,
   z-index: 18;
   right: 0;
   bottom: 0;
-  width: 12px;
-  height: 12px;
+  width: 8px;
+  height: 8px;
   margin: 0;
   border: 0;
   border-radius: 0;
@@ -5286,7 +5286,7 @@ body,
   opacity: 0;
   padding: 0;
   touch-action: none;
-  transition: opacity 0.1s ease;
+  transition: none;
 }
 
 .category-table-shell table.rows.grades.entries button.autofill-handle::after {
@@ -5294,17 +5294,28 @@ body,
   position: absolute;
   right: 1px;
   bottom: 1px;
-  width: 6px;
-  height: 6px;
-  border: 1px solid #111;
+  width: 7px;
+  height: 7px;
+  border: 0;
   background: var(--accent);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent);
+  clip-path: polygon(100% 0, 100% 100%, 0 100%);
+  box-shadow: none;
 }
 
-.category-table-shell table.rows.grades.entries td.autofill-cell:hover > .autofill-handle,
-.category-table-shell table.rows.grades.entries td.autofill-cell:focus-within > .autofill-handle,
-.category-table-shell table.rows.grades.entries td.autofill-range > .autofill-handle {
+.category-table-shell table.rows.grades.entries button.autofill-handle:hover {
   opacity: 1;
+}
+
+body.autofill-dragging .category-table-shell table.rows.grades.entries button.autofill-handle {
+  opacity: 0;
+}
+
+body.autofill-dragging .category-table-shell table.rows.grades.entries td.autofill-source > .autofill-handle {
+  opacity: 1;
+}
+
+.grades-dragging .category-table-shell table.rows.grades.entries button.autofill-handle {
+  display: none;
 }
 
 .category-table-shell table.rows.grades.entries td.autofill-range {
@@ -5409,6 +5420,12 @@ body.autofill-dragging * {
   text-transform: uppercase;
 }
 
+.class-switcher-tools {
+  margin-top: 8px;
+  border-top: 1px solid var(--line-soft);
+  padding-top: 10px;
+}
+
 .class-switcher-settings {
   display: flex;
   width: 100%;
@@ -5432,8 +5449,7 @@ body.autofill-dragging * {
 }
 
 .course-settings-modal .appearance-fields {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  display: block;
   gap: 0;
   margin: 0;
 }
@@ -5458,3 +5474,363 @@ body.autofill-dragging * {
 .course-settings-modal .custom-color-combo input:not([type="color"]) {
   width: 110px;
 }
+
+.course-settings-modal .course-detail-fields {
+  display: block;
+}
+
+/* Use an inset chevron rather than the native arrow at the control's edge. */
+.settings-dialog select {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%23e9e9e7' stroke-width='1.5'/%3E%3C/svg%3E") !important;
+  background-repeat: no-repeat !important;
+  background-position: right 14px center !important;
+  padding-right: 36px !important;
+}
+
+.class-switcher .course-list button {
+  touch-action: none;
+  user-select: none;
+  cursor: grab;
+}
+
+.class-switcher .course-list.courses-dragging button {
+  transition: none;
+  transform: none;
+}
+
+.class-switcher .course-list button.dragging {
+  background: color-mix(in srgb, var(--course-color) 26%, #262a26);
+  border-color: var(--course-color);
+  cursor: grabbing;
+}
+
+/* Notes is the one flexible track. All the editable and calculated tracks
+   retain their declared widths even when the table has spare space. */
+.category-table-shell table.rows.grades.entries {
+  --actions-width: 72px;
+  min-width: calc(752px + var(--name-column-width, 180px));
+}
+
+.category-table-shell table.rows.grades.entries .col-notes {
+  width: auto;
+}
+
+.category-table-shell table.rows.grades.entries .col-actions {
+  width: var(--actions-width);
+}
+
+.category-table-shell table.rows.grades.entries th.notes-head {
+  text-align: center !important;
+}
+
+.category-table-shell table.rows.grades.entries th.row-actions,
+.category-table-shell table.rows.grades.entries td.row-actions {
+  position: sticky !important;
+  right: 0;
+  z-index: 8;
+  border-left: 1px solid var(--gridline);
+  background: #181a18;
+  padding: 0 !important;
+  text-align: center !important;
+}
+
+.category-table-shell table.rows.grades.entries th.row-actions {
+  z-index: 10;
+  background: #202020;
+}
+
+.category-table-shell table.rows.grades.entries td.row-actions button {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  margin: 0 3px;
+  padding: 0;
+  opacity: .65;
+}
+
+.category-table-shell table.rows.grades.entries td.row-actions button svg {
+  width: 13px;
+  height: 13px;
+}
+
+.category-table-shell table.rows.grades.entries td.row-actions:hover button {
+  opacity: 1;
+}
+
+.entry-scroll-frame::after {
+  right: 72px;
+}
+
+/* Keep the moving row's surface uniform across frozen cells, hovered cells,
+   focused inputs, and status changes while recalculating the drag preview. */
+.grades-dragging .category-table-shell table.rows.grades.entries tbody tr.dragging td,
+.grades-dragging .category-table-shell table.rows.grades.entries tbody tr.dragging td:hover,
+.grades-dragging .category-table-shell table.rows.grades.entries tbody tr.dragging td:has(> input) {
+  background: color-mix(in srgb, var(--accent) 24%, #202220) !important;
+  box-shadow: none !important;
+  color: var(--text);
+}
+
+.grades-dragging .category-table-shell table.rows.grades.entries tbody tr.dragging input {
+  background: transparent !important;
+}
+
+/* Actions owns the single frozen divider; Notes must not draw another one. */
+.category-table-shell table.rows.grades.entries th:nth-child(9),
+.category-table-shell table.rows.grades.entries td:nth-child(9) {
+  border-right: 0 !important;
+}
+
+.category-table-shell table.rows.grades.entries td.row-actions button {
+  border: 1px solid #606760 !important;
+  border-radius: 50% !important;
+  background: #262b26;
+  opacity: 1 !important;
+}
+
+.category-table-shell table.rows.grades.entries td.row-actions button:hover {
+  border-color: currentColor !important;
+  background: #353b35;
+}
+
+.settings-dialog .toggle-row {
+  gap: 8px;
+  padding-left: 10px;
+}
+
+.settings-dialog .toggle-row input[type="checkbox"] {
+  margin: 0;
+}
+
+.settings-dialog .course-delete-action {
+  grid-template-columns: 15px minmax(0, 1fr);
+  gap: 8px;
+  padding-left: 10px;
+}
+
+.settings-dialog .panel-transfer > button {
+  justify-content: flex-start;
+  gap: 7px;
+  padding-left: 10px;
+}
+
+.history-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.history-controls .ghost.icon svg {
+  display: block;
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.history-controls .ghost.icon:disabled {
+  color: var(--muted);
+  opacity: .4;
+}
+
+.grade-head {
+  gap: 6px;
+}
+
+.grade-head .add-assignment {
+  margin: 0;
+}
+
+/* Prevent rubber-banding at the page and modal scroll boundaries while
+   retaining normal vertical scrolling. */
+html,
+body,
+.app-shell,
+.main-panel,
+.modal-backdrop,
+.settings-dialog {
+  overscroll-behavior-y: none;
+}
+
+table.rows.grades tbody td.good {
+  color: var(--good) !important;
+}
+
+table.rows.grades tbody td.bad {
+  color: var(--bad) !important;
+}
+
+table.rows.grades tbody td.zero {
+  color: var(--text) !important;
+}
+
+/* GPA uses the gradebook's headers, term cards, viewports and button system,
+   but its own column model rather than assignment-specific sticky offsets. */
+.gpa-table {
+  table-layout: fixed;
+  min-width: 620px;
+  box-shadow: none;
+  font-size: 12px;
+}
+
+.gpa-table th,
+.gpa-table td {
+  height: 36px;
+  border: 1px solid var(--gridline);
+  padding: 6px 10px;
+  text-align: center;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.gpa-table thead th {
+  height: 32px;
+  background: #202020;
+  color: var(--dim);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.gpa-table th:first-child,
+.gpa-table td:first-child {
+  text-align: left;
+}
+
+.gpa-summary th:first-child {
+  width: 40%;
+  font-weight: 500;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.gpa-summary tbody th {
+  color: var(--text);
+  font-size: 12px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.gpa-summary tr.total > * {
+  font-weight: 650;
+  background: #2b2d2b;
+}
+
+.gpa-summary-shell {
+  margin-bottom: 14px;
+}
+
+.gpa-courses .gpa-name { width: auto; }
+.gpa-courses .gpa-grade { width: 140px; }
+.gpa-courses .gpa-units { width: 72px; }
+.gpa-courses .gpa-value { width: 100px; }
+.gpa-courses .gpa-quality { width: 108px; }
+.gpa-courses .gpa-actions { width: 72px; }
+
+.gpa-courses td:has(input),
+.gpa-courses td:has(select) {
+  padding: 0;
+}
+
+.gpa-courses input,
+.gpa-courses select {
+  display: block;
+  width: 100%;
+  height: 35px;
+  min-width: 0;
+  border: 0;
+  border-radius: 0;
+  outline: 0;
+  background-color: transparent;
+  padding: 5px 8px;
+  color: var(--text);
+  font: inherit;
+  text-align: center;
+}
+
+.gpa-courses td:first-child input { text-align: left; }
+.gpa-courses select {
+  appearance: none;
+  padding-right: 24px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='m2 4 4 4 4-4' fill='none' stroke='%23b9bbb6' stroke-width='1.3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 9px center;
+  background-size: 12px;
+}
+.gpa-courses select option,
+.gpa-courses select optgroup { background: #202320; color: var(--text); }
+.gpa-courses input:focus,
+.gpa-courses select:focus { box-shadow: inset 0 0 0 2px var(--accent); }
+.gpa-courses input[aria-invalid="true"] { box-shadow: inset 0 0 0 2px var(--bad); }
+.gpa-courses input::placeholder { color: var(--dim); }
+.gpa-table td.gpa-na { color: #60665f; }
+
+.gpa-courses th:last-child,
+.gpa-courses td:last-child {
+  position: sticky;
+  right: 0;
+  z-index: 8;
+  padding: 0;
+  background: #181a18;
+}
+
+.gpa-courses th:last-child { background: #202020; }
+.gpa-course-scroll-frame::after { right: 72px; }
+.gpa-row-actions { white-space: nowrap; }
+.gpa-row-actions .ghost.icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin: 0 3px;
+  border: 1px solid #606760;
+  border-radius: 50%;
+  background: #262b26;
+}
+.gpa-row-actions .ghost.icon svg { width: 13px; height: 13px; }
+.gpa-row-actions .ghost.icon:hover { border-color: currentColor; background: #353b35; }
+
+.gpa-rules { color: var(--dim); font-size: 12px; }
+.gpa-rules summary { cursor: pointer; }
+.gpa-rules p { margin: 10px 0; max-width: 900px; }
+.gpa-rules a { color: var(--accent); }
+.gpa-add-term {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 22px;
+  border: 1px dashed var(--line);
+  border-radius: 12px;
+  padding: 14px;
+}
+.gpa-add-term input {
+  width: min(280px, 65%);
+  min-width: 0;
+  height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #202320;
+  padding: 5px 9px;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+}
+.gpa-add-term input::placeholder { color: var(--dim); }
+.gpa-add-term input:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
+.gpa-sheet .forecast-card > span {
+  color: var(--dim);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.gpa-sheet .forecast-card > small { display: block; color: var(--dim); font-size: 11px; }

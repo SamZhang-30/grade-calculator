@@ -39,8 +39,8 @@ export interface GradeConfig {
   /**
    * Below this, a stand-to-gain/lose figure is reported as exactly zero.
    *
-   * Rounding a projection to the nearest point leaves floating-point crumbs on
-   * categories with nothing at stake, and "+0.00%" reads as a real number.
+   * Defaults to zero so small signed changes remain visible as +0.00% or
+   * −0.00%. Consumers can opt into a nonzero suppression threshold.
    */
   gainLoseDeadzone: number;
   /**
@@ -117,7 +117,7 @@ export const DEFAULT_GRADE_CONFIG: GradeConfig = {
   weightEpsilon: 1e-9,
   alpha: 0.2,
   truncateDegreesOfFreedom: true,
-  gainLoseDeadzone: 1e-4,
+  gainLoseDeadzone: 0,
   // Worth one assignment's say in the mean and two in the spread: enough to
   // stop a single mark claiming certainty, light enough to be washed out by
   // the fourth or fifth.
