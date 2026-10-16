@@ -12,6 +12,8 @@ import {
   type WeightMode,
 } from "./grade-engine";
 import { GPA_GRADES, normalizeGpaTerms, validGpaUnits, type GpaTerm, type GpaCourse } from "./gpa";
+import { fromRecords, mergeRecords, same, toRecords } from "./sync/model";
+import { validateAppData } from "./backup";
 
 /** The engine's shapes plus the editable fields the interface stores. */
 export interface GradeEntryRow extends GradeEntry {
@@ -69,6 +71,42 @@ export interface AppData {
 }
 
 const STORAGE_KEY = "gradebook.data.v1";
+let storageKey = STORAGE_KEY;
+const dataListeners = new Set<(external: boolean) => void>();
+const commitListeners = new Set<(before: AppData, after: AppData) => void>();
+
+/** Sync writes do not re-enter the outgoing queue. Account caches and the
+ * original local-only gradebook use separate storage namespaces. */
+export function subscribeData(listener: (external: boolean) => void) {
+  dataListeners.add(listener);
+  return () => { dataListeners.delete(listener); };
+}
+export function subscribeCommits(listener: (before: AppData, after: AppData) => void) {
+  commitListeners.add(listener);
+  return () => { commitListeners.delete(listener); };
+}
+export function profileData(uid: string): AppData | null {
+  const raw = storage()?.getItem(`${STORAGE_KEY}.account.${uid}`);
+  return raw ? JSON.parse(raw) as AppData : null;
+}
+export function switchProfile(uid: string | null, data?: AppData) {
+  const previousKey = storageKey;
+  const previousMemory = inMemory;
+  storageKey = uid ? `${STORAGE_KEY}.account.${uid}` : STORAGE_KEY;
+  inMemory = data ?? starterData();
+  try { if (data) saveData(data); }
+  catch (error) { storageKey = previousKey; inMemory = previousMemory; throw error; }
+  store.clearHistory();
+  dataListeners.forEach((listener) => listener(true));
+}
+export function applySyncedData(data: AppData) {
+  if (JSON.stringify(loadData()) === JSON.stringify(data)) return;
+  saveData(data);
+  // Keep scoped undo history. restoreHistory performs a three-way merge and
+  // refuses an undo that overlaps a newer edit from another device.
+  historyCurrent = JSON.stringify(data);
+  dataListeners.forEach((listener) => listener(true));
+}
 
 const uid = (prefix: string) =>
   `${prefix}-${typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -194,7 +232,7 @@ function storage(): Storage | null {
 }
 
 export function loadData(): AppData {
-  const raw = storage()?.getItem(STORAGE_KEY);
+  const raw = storage()?.getItem(storageKey);
   if (!raw) return structuredClone(inMemory);
   try {
     const parsed = JSON.parse(raw) as AppData;
@@ -255,7 +293,7 @@ function saveData(data: AppData) {
   const target = storage();
   if (target) {
     try {
-      target.setItem(STORAGE_KEY, JSON.stringify(data));
+      target.setItem(storageKey, JSON.stringify(data));
     } catch {
       throw new Error("Your browser could not save this change. Check local storage permissions.");
     }
@@ -281,18 +319,27 @@ function syncHistory(current: string) {
 }
 
 function restoreHistory(direction: "undo" | "redo"): AppData | null {
-  syncHistory(JSON.stringify(loadData()));
+  const current = loadData();
+  syncHistory(JSON.stringify(current));
   const from = direction === "undo" ? undoSteps : redoSteps;
   const to = direction === "undo" ? redoSteps : undoSteps;
   const step = from.at(-1);
   if (!step) { notifyHistory(); return null; }
   const snapshot = direction === "undo" ? step.before : step.after;
-  const restored = JSON.parse(snapshot) as AppData;
+  const expected = direction === "undo" ? step.after : step.before;
+  let restored = JSON.parse(snapshot) as AppData;
+  if (JSON.stringify(current) !== expected) {
+    const merged = mergeRecords(toRecords(JSON.parse(expected)), toRecords(restored), toRecords(current));
+    if (merged.conflicts.length) throw new Error("This undo/redo overlaps changes from another device. Those changes have not been overwritten.");
+    restored = fromRecords(merged.records);
+  }
   saveData(restored);
   from.pop();
   to.push(step);
-  historyCurrent = snapshot;
+  historyCurrent = JSON.stringify(restored);
   notifyHistory();
+  commitListeners.forEach((listener) => listener(current, restored));
+  dataListeners.forEach((listener) => listener(false));
   return structuredClone(restored);
 }
 
@@ -309,6 +356,8 @@ function mutate<T>(fn: (data: AppData) => T): Promise<T> {
   redoSteps.length = 0;
   historyCurrent = after;
   notifyHistory();
+  commitListeners.forEach((listener) => listener(JSON.parse(before) as AppData, data));
+  dataListeners.forEach((listener) => listener(false));
   return Promise.resolve(result);
 }
 
@@ -346,6 +395,14 @@ function gpaCourseById(data: AppData, id: string): GpaCourse {
 }
 
 export const store = {
+  restoreBackup: (value: unknown) => {
+    const restored = validateAppData(value);
+    return mutate((data) => {
+      if (same(data, restored)) return false;
+      Object.assign(data, structuredClone(restored));
+      return true;
+    });
+  },
   addGpaTerm: (name: string) => mutate((data) => {
     const term: GpaTerm = { id: uid("gpa-term"), name: name.trim() || "Untitled term",
       courses: [{ id: uid("gpa-course"), name: "", grade: "", units: null }] };

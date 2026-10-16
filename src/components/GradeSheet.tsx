@@ -28,6 +28,7 @@ import {
 } from "../grade-engine";
 import { signedChange as signed, changeTone as tone } from "../grade-display";
 import { autofillAssignmentName } from "../autofill";
+import { DialogSurface } from "./DialogSurface";
 import {
   api,
   store,
@@ -390,10 +391,10 @@ export function GradeModal({
 }) {
   return (
     <div className="modal-backdrop grade-modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <section className={`settings-dialog grade-popover modal-surface ${className}`.trim()} role="dialog" aria-modal="true" aria-label={label}>
+      <DialogSurface className={`settings-dialog grade-popover modal-surface ${className}`.trim()} aria-label={label} onClose={onClose}>
         <button className="modal-close" onClick={onClose} aria-label="Close settings">×</button>
         {children}
-      </section>
+      </DialogSurface>
     </div>
   );
 }

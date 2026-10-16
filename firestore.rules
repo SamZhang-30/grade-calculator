@@ -1,0 +1,50 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{userId}/gradebook/{recordId} {
+      function owner() {
+        // This deployment is personal-only. Trust Firebase's signed identity
+        // claims, never an email supplied in a request body or browser setting.
+        return request.auth != null
+          && request.auth.uid == userId
+          && request.auth.token.email == 'sam.zhang.official@gmail.com'
+          && request.auth.token.email_verified == true
+          && request.auth.token.firebase.sign_in_provider == 'google.com';
+      }
+      function validMeta() {
+        return request.resource.data.keys().hasOnly(['version', 'revision'])
+          && request.resource.data.version == 1
+          && request.resource.data.revision is int;
+      }
+      function advancesFence() {
+        let path = /databases/$(database)/documents/users/$(userId)/gradebook/_meta;
+        return getAfter(path).data.version == 1
+          && getAfter(path).data.revision == (exists(path) ? get(path).data.revision + 1 : 1);
+      }
+      function validRecord() {
+        return recordId != '_meta'
+          && recordId.size() <= 1400
+          && (recordId == 'settings' || recordId.matches('^(course|category|entry|term|gpa-course):.+$'))
+          && request.resource.data.keys().hasOnly(['version', 'fields'])
+          && request.resource.data.version == 1
+          && request.resource.data.fields is map
+          && request.resource.data.fields.size() <= 40;
+      }
+      allow read: if owner();
+      // Only a transaction that advances the revision fence may change data.
+      // This also protects against clients writing records without the fence.
+      allow create: if owner() && (recordId == '_meta'
+        ? validMeta() && request.resource.data.revision == 1
+        : validRecord() && advancesFence());
+      allow update: if owner() && (recordId == '_meta'
+        ? validMeta() && request.resource.data.revision == resource.data.revision + 1
+        : validRecord() && advancesFence());
+      allow delete: if owner() && recordId != '_meta' && advancesFence();
+    }
+    // Everything else is private/denied, including other accounts and
+    // arbitrary subcollections. Never replace this with public test rules.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

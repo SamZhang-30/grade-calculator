@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { api, loadData, store } from "../src/store";
+import { api, loadData, store, applySyncedData, switchProfile, subscribeCommits } from "../src/store";
 
 const initial = loadData();
 
@@ -15,6 +15,64 @@ beforeEach(() => {
 });
 
 describe("undo and redo", () => {
+  it("restores a whole-app backup as one undoable, syncable replacement", async () => {
+    const before = loadData();
+    const backup = structuredClone(before);
+    backup.courses = [];
+    backup.settings.gradeAlpha = .15;
+    backup.gpaTerms = [{ id: "restored-term", name: "Restored", courses: [{ id: "restored-course", name: "CS", grade: "A", units: 5 }] }];
+    const commits = vi.fn(); const unsubscribe = subscribeCommits(commits);
+    try {
+      await store.restoreBackup(backup);
+      expect(loadData()).toEqual(backup);
+      expect(commits).toHaveBeenNthCalledWith(1, before, backup);
+      expect(store.undo()).toEqual(before);
+      expect(commits).toHaveBeenNthCalledWith(2, backup, before);
+      expect(store.redo()).toEqual(backup);
+      expect(commits).toHaveBeenNthCalledWith(3, before, backup);
+      expect(store.historyState()).toEqual({ canUndo: true, canRedo: false });
+    } finally { unsubscribe(); }
+  });
+  it("does not change data or history when a backup is invalid", () => {
+    const before = loadData();
+    expect(() => store.restoreBackup({ ...before, version: 99 })).toThrow("Nothing was replaced");
+    expect(loadData()).toEqual(before);
+    expect(store.historyState()).toEqual({ canUndo: false, canRedo: false });
+  });
+  it("does not create an undo step for an identical backup", async () => {
+    expect(await store.restoreBackup(loadData())).toBe(false);
+    expect(store.historyState()).toEqual({ canUndo: false, canRedo: false });
+  });
+  it("undo and redo preserve unrelated remote edits", async () => {
+    const id = loadData().courses[0]!.id;
+    await store.updateCourse(id, { name: "My edit" });
+    const remote = loadData(); remote.courses[0]!.instructor = "Phone instructor";
+    applySyncedData(remote);
+    const undone = store.undo()!;
+    expect(undone.courses[0]!.name).toBe(initial.courses[0]!.name);
+    expect(undone.courses[0]!.instructor).toBe("Phone instructor");
+    expect(store.redo()!.courses[0]!).toMatchObject({ name: "My edit", instructor: "Phone instructor" });
+  });
+  it("refuses undo that overlaps a remote change", async () => {
+    await store.updateCourse(initial.courses[0]!.id, { name: "My edit" });
+    const remote = loadData(); remote.courses[0]!.name = "Phone edit";
+    applySyncedData(remote);
+    expect(() => store.undo()).toThrow("overlaps changes");
+    expect(loadData().courses[0]!.name).toBe("Phone edit");
+  });
+  it("isolates account caches from each other and the local-only gradebook", async () => {
+    const accountA = structuredClone(initial); accountA.courses[0]!.name = "Account A";
+    const accountB = structuredClone(initial); accountB.courses[0]!.name = "Account B";
+    switchProfile("a", accountA);
+    await store.updateCourse(initial.courses[0]!.id, { name: "Changed A" });
+    switchProfile("b", accountB);
+    expect(loadData().courses[0]!.name).toBe("Account B");
+    switchProfile("a");
+    expect(loadData().courses[0]!.name).toBe("Changed A");
+    switchProfile(null);
+    expect(loadData()).toEqual(initial);
+    expect(store.historyState().canUndo).toBe(false);
+  });
   it("persists GPA terms and restores all GPA edits, duplicates and deletions", async () => {
     const states = [loadData()];
     const term = await store.addGpaTerm("Autumn 2026");

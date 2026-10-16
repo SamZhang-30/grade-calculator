@@ -5648,6 +5648,46 @@ body.autofill-dragging * {
   gap: 6px;
 }
 
+/* Optional account sync uses the existing restrained settings styling. */
+.sync-dialog { width: min(560px, calc(100vw - 32px)); }
+.backup-dialog { width: min(600px, calc(100vw - 32px)); }
+.backup-dialog p { line-height: 1.5; }
+.backup-file { display: grid; gap: 10px; margin-top: 16px; font-size: 13px; }
+.backup-file input { width: 100%; min-width: 0; font: inherit; }
+.backup-file input::file-selector-button { padding: 8px 12px; margin-right: 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel); color: var(--text); cursor: pointer; }
+.backup-confirm { margin-top: 16px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; }
+.backup-confirm button { white-space: normal; }
+.switcher-storage-note { margin: 14px 9px 4px; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.sync-setup summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+.sync-dialog p, .sync-dialog li { line-height: 1.5; }
+.sync-dialog a { color: var(--accent); }
+.sync-dialog code { overflow-wrap: anywhere; font-size: .9em; }
+.sync-setup ol { padding-left: 20px; }
+.sync-setup li + li { margin-top: 8px; }
+.sync-hint { color: var(--muted); font-size: 12px; }
+.sync-section { padding: 16px 0; border-top: 1px solid var(--line); }
+.sync-section h3 { margin: 0; font-size: 15px; }
+.sync-account { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 18px 0; }
+.sync-account span { min-width: 0; overflow-wrap: anywhere; }
+.sync-account small { display: block; color: var(--muted); margin-top: 4px; }
+.sync-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+.sync-error { color: var(--bad); padding: 8px 0; overflow-wrap: anywhere; }
+.sync-conflicts { padding: 0; list-style: none; max-height: 240px; overflow: auto; }
+.sync-conflicts li { padding: 8px; border: 1px solid var(--line); border-radius: 6px; margin-bottom: 8px; overflow-wrap: anywhere; }
+.sync-conflicts small { display: block; color: var(--muted); }
+.sync-switcher-button span { flex: 1; text-align: left; }
+.sync-switcher-button small { font-size: 10px; color: var(--muted); white-space: nowrap; }
+.sync-status-notice { position: fixed; right: 16px; bottom: 16px; z-index: 30; display: flex; align-items: center; gap: 7px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; }
+.sync-status-notice svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.5; }
+
 .history-controls .ghost.icon svg {
   display: block;
   width: 18px;

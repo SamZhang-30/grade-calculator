@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import {
   DEFAULT_GRADE_CONFIG,
@@ -7,11 +7,15 @@ import {
   type ForecastBasis,
 } from "./grade-engine";
 import { GradeSheet, resolveDefaults } from "./components/GradeSheet";
-import { loadData, store, type AppData, type AppSettings, type Course } from "./store";
+import { loadData, store, subscribeData, type AppData, type AppSettings, type Course } from "./store";
 import { formatUnits } from "./units";
 import { HistoryRevisionContext, useHistoryRevision } from "./history-ui";
 import { GpaSheet } from "./components/GpaSheet";
 import { calculateGpa, formatGpa } from "./gpa";
+import { getSyncState, initializeSync, subscribeSync } from "./sync/client";
+import { CloudIcon, SyncDialog, syncLabel } from "./components/SyncDialog";
+import { BackupDialog } from "./components/BackupDialog";
+import { DialogSurface } from "./components/DialogSurface";
 
 const PALETTE = [
   "#8b7cf6",
@@ -165,7 +169,7 @@ function CourseIdentity({ course, switcher }: { course: Course; switcher: ReactN
 }
 
 function CourseSwitcher({
-  active, courses, grades, onSelect, onAdd, onSettings, onReorder, onGpa, gpa,
+  active, courses, grades, onSelect, onAdd, onSettings, onReorder, onGpa, gpa, onSync, syncStatus, onBackup,
 }: {
   active: Pick<Course, "id" | "color" | "emoji">;
   courses: Course[];
@@ -176,9 +180,13 @@ function CourseSwitcher({
   onReorder: (ids: string[]) => void;
   onGpa: () => void;
   gpa: number | null;
+  onSync: () => void;
+  syncStatus: string;
+  onBackup: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState({ top: 0, left: 0 });
   const [previewOrder, setPreviewOrder] = useState<string[] | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
@@ -259,7 +267,7 @@ function CourseSwitcher({
     const positionMenu = () => {
       const rect = trigger.current?.getBoundingClientRect();
       if (rect) setPosition({
-        top: Math.max(12, Math.min(rect.bottom + 8, window.innerHeight - 220)),
+        top: Math.max(12, Math.min(rect.bottom + 8, window.innerHeight - (menu.current?.firstElementChild?.getBoundingClientRect().height ?? 220) - 12)),
         left: Math.max(12, Math.min(rect.left, window.innerWidth - Math.min(360, window.innerWidth - 24) - 12)),
       });
     };
@@ -289,8 +297,8 @@ function CourseSwitcher({
         aria-haspopup="dialog"
       >{active.emoji}</button>
       {open ? createPortal(
-        <div className="class-switcher-backdrop" onMouseDown={(event) => event.target === event.currentTarget && close()}>
-          <section className="class-switcher" style={position} role="dialog" aria-label="Switch classes">
+        <div ref={menu} className="class-switcher-backdrop" onMouseDown={(event) => event.target === event.currentTarget && close()}>
+          <DialogSurface className="class-switcher" style={position} aria-label="Switch classes" onClose={close}>
             <div className="class-switcher-heading">
               <b>Classes</b>
               <button className="icon-button" aria-label="Close class switcher" onClick={close}>×</button>
@@ -333,7 +341,14 @@ function CourseSwitcher({
             <button className="class-switcher-settings" onClick={() => { close(); onSettings(); }}>
               <SettingsIcon /> Global grade settings
             </button>
-          </section>
+            <button className="class-switcher-settings sync-switcher-button" onClick={() => { close(); onSync(); }}>
+              <CloudIcon /><span>Cloud sync</span><small>{syncStatus}</small>
+            </button>
+            <button className="class-switcher-settings" onClick={() => { close(); onBackup(); }}>
+              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2v10m-4-4 4 4 4-4M3 12v5h14v-5" /></svg> Backups & data
+            </button>
+            <p className="switcher-storage-note">Saved in this browser first. Public visitors use local storage; cloud sync is owner-only.</p>
+          </DialogSurface>
         </div>, document.body,
       ) : null}
     </>
@@ -369,7 +384,7 @@ function AppSettingsDialog({
 
   return (
     <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <section className="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+      <DialogSurface className="settings-dialog" aria-labelledby="settings-title" onClose={onClose}>
         <div className="dialog-head">
           <div>
             <p className="eyebrow">Defaults</p>
@@ -457,7 +472,7 @@ function AppSettingsDialog({
           <span>Saved automatically on this device.</span>
           <button className="primary-button" onClick={onClose}>Done</button>
         </div>
-      </section>
+      </DialogSurface>
     </div>
   );
 }
@@ -472,6 +487,24 @@ export default function App() {
   const [error, setError] = useState("");
   const [history, setHistory] = useState(store.historyState);
   const [historyRevision, setHistoryRevision] = useState(0);
+  const [syncOpen, setSyncOpen] = useState(false);
+  const [backupOpen, setBackupOpen] = useState(false);
+  const sync = useSyncExternalStore(subscribeSync, getSyncState);
+
+  useEffect(() => { void initializeSync(); }, []);
+  useEffect(() => {
+    let deferred = false;
+    const update = () => { if (deferred) { deferred = false; setData(loadData()); } };
+    const unsubscribe = subscribeData((external) => {
+      // Don't replace a half-typed draft when another device sends an update.
+      // The latest store value is still used by the subsequent blur commit.
+      if (external && document.activeElement?.matches("input, textarea, [contenteditable='true']")) {
+        deferred = true;
+      } else setData(loadData());
+    });
+    window.addEventListener("focusout", update);
+    return () => { unsubscribe(); window.removeEventListener("focusout", update); };
+  }, []);
 
   useEffect(() => store.subscribeHistory(() => setHistory(store.historyState())), []);
 
@@ -595,6 +628,7 @@ export default function App() {
       courses={data.courses} grades={gradeByCourse} onSelect={setActiveId}
       onAdd={() => setAdding(true)} onSettings={() => setSettingsOpen(true)}
       onGpa={() => setActiveId(GPA_VIEW_ID)}
+      onSync={() => setSyncOpen(true)} syncStatus={syncLabel(sync)} onBackup={() => setBackupOpen(true)}
       gpa={calculateGpa(data.gpaTerms.flatMap((term) => term.courses)).gpa}
       onReorder={(ids) => {
         void store.reorderCourses(ids).then(refresh).catch((cause: Error) => setError(cause.message));
@@ -636,17 +670,22 @@ export default function App() {
             <p>Track assignments, model your final grade, and see how much is still at stake.</p>
             <button className="primary-button" onClick={() => setAdding(true)}>Add a class</button>
             <button className="secondary-button" onClick={() => setActiveId(GPA_VIEW_ID)}>GPA Calculator</button>
+            <button className="secondary-button" onClick={() => setSyncOpen(true)}>Cloud sync</button>
+            <button className="secondary-button" onClick={() => setBackupOpen(true)}>Backups & data</button>
             {historyControls}
           </section>
         )}
 
         {error ? <div className="toast" role="alert">{error}</div> : null}
+        {sync.phase === "connected" && (sync.engine?.status !== "synced" || sync.error) ?
+          <button className="sync-status-notice" onClick={() => setSyncOpen(true)} aria-live="polite">
+            <CloudIcon /> Cloud sync · {syncLabel(sync)}
+          </button> : null}
       </main>
 
       {adding ? (
         <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setAdding(false)}>
-          <section className="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="add-class-title"
-            onKeyDown={(event) => event.key === "Escape" && setAdding(false)}>
+          <DialogSurface className="settings-dialog" aria-labelledby="add-class-title" onClose={() => setAdding(false)}>
             <div className="dialog-head">
               <h2 id="add-class-title">Add a class</h2>
               <button className="icon-button" onClick={() => setAdding(false)} aria-label="Close add class">×</button>
@@ -661,9 +700,12 @@ export default function App() {
                 <button className="primary-button" disabled={!newName.trim()}>Add</button>
               </div>
             </form>
-          </section>
+          </DialogSurface>
         </div>
       ) : null}
+
+      {syncOpen ? <SyncDialog state={sync} onClose={() => setSyncOpen(false)} /> : null}
+      {backupOpen ? <BackupDialog sync={sync} onClose={() => setBackupOpen(false)} /> : null}
 
       {settingsOpen ? (
         <AppSettingsDialog settings={data.settings} onClose={() => setSettingsOpen(false)} onChanged={refresh} />
@@ -671,14 +713,14 @@ export default function App() {
 
       {deleting && active ? (
         <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setDeleting(false)}>
-          <section className="confirm-dialog" role="alertdialog" aria-modal="true">
-            <h2>Delete {active.name}?</h2>
-            <p>This removes its categories, assignments, and forecasts from this browser. You can undo this during the current session. Undo history resets when you reload; export first for a lasting backup.</p>
+          <DialogSurface className="confirm-dialog" role="alertdialog" aria-labelledby="delete-course-title" onClose={() => setDeleting(false)}>
+            <h2 id="delete-course-title">Delete {active.name}?</h2>
+            <p>This removes its categories, assignments, and forecasts from your gradebook, including connected devices when cloud sync is active. You can undo this during the current session. Undo history resets when you reload; export first for a lasting backup.</p>
             <div>
               <button className="secondary-button" onClick={() => setDeleting(false)}>Cancel</button>
               <button className="danger-button" onClick={() => void removeCourse()}>Delete class</button>
             </div>
-          </section>
+          </DialogSurface>
         </div>
       ) : null}
     </div>
