@@ -206,6 +206,27 @@ describe("undo and redo", () => {
     expect(store.undo()).toEqual(before);
     expect(store.redo()).toEqual(after);
   });
+  it("reorders courses within one GPA term as a single edit", async () => {
+    const term = await store.addGpaTerm("Autumn");
+    const first = term.courses[0]!;
+    const second = await store.addGpaCourse(term.id);
+    const other = await store.addGpaTerm("Winter");
+    await store.updateGpaCourse(first.id, { name: "Math", grade: "A", units: 3 });
+    const before = loadData();
+    store.clearHistory();
+    expect(() => store.reorderGpaCourses(term.id, [second.id, other.courses[0]!.id])).toThrow("course list changed");
+    expect(() => store.reorderGpaCourses(term.id, [first.id, first.id])).toThrow("course list changed");
+    await store.reorderGpaCourses(term.id, [first.id, second.id]);
+    expect(store.historyState().canUndo).toBe(false);
+
+    await store.reorderGpaCourses(term.id, [second.id, first.id]);
+    const after = loadData();
+    expect(after.gpaTerms[0]!.courses).toEqual([...before.gpaTerms[0]!.courses].reverse());
+    expect(after.gpaTerms[1]).toEqual(before.gpaTerms[1]);
+    expect(parseBackup(serializeBackup(after)).data).toEqual(after);
+    expect(store.undo()).toEqual(before);
+    expect(store.redo()).toEqual(after);
+  });
 
   it("undoes assignment reordering and discards stale history after an external edit", async () => {
     const before = loadData();

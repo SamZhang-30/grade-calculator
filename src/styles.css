@@ -3880,7 +3880,7 @@ td.grip:hover svg {
   box-shadow: inset 3px 0 0 var(--accent);
 }
 
-.grades-dragging table.rows.grades.entries tr.dragging td.grip svg {
+.grades-dragging table.rows:is(.grades.entries, .gpa-courses) tr.dragging td.grip svg {
   fill: #fff;
 }
 
@@ -5183,8 +5183,8 @@ table.rows.grades tbody tr.total td {
   }
 }
 
-.grades-dragging .category-table-shell table.rows.grades.entries tbody tr:not(.dragging):hover td,
-.grades-dragging .category-table-shell table.rows.grades.entries tbody tr:not(.dragging) td:hover {
+.grades-dragging .category-table-shell table.rows:is(.grades.entries, .gpa-courses) tbody tr:not(.dragging):hover td,
+.grades-dragging .category-table-shell table.rows:is(.grades.entries, .gpa-courses) tbody tr:not(.dragging) td:hover {
   background: #181a18 !important;
   box-shadow: none !important;
 }
@@ -5595,15 +5595,15 @@ body.autofill-dragging * {
 
 /* Keep the moving row's surface uniform across frozen cells, hovered cells,
    focused inputs, and status changes while recalculating the drag preview. */
-.grades-dragging .category-table-shell table.rows.grades.entries tbody tr.dragging td,
-.grades-dragging .category-table-shell table.rows.grades.entries tbody tr.dragging td:hover,
-.grades-dragging .category-table-shell table.rows.grades.entries tbody tr.dragging td:has(> input) {
+.grades-dragging .category-table-shell table.rows:is(.grades.entries, .gpa-courses) tbody tr.dragging td,
+.grades-dragging .category-table-shell table.rows:is(.grades.entries, .gpa-courses) tbody tr.dragging td:hover,
+.grades-dragging .category-table-shell table.rows:is(.grades.entries, .gpa-courses) tbody tr.dragging td:has(> input) {
   background: color-mix(in srgb, var(--accent) 24%, #202220) !important;
   box-shadow: none !important;
   color: var(--text);
 }
 
-.grades-dragging .category-table-shell table.rows.grades.entries tbody tr.dragging input {
+.grades-dragging .category-table-shell table.rows:is(.grades.entries, .gpa-courses) tbody tr.dragging input {
   background: transparent !important;
 }
 
@@ -5829,8 +5829,11 @@ table.rows.gpa-table td:first-child {
   text-align: left;
 }
 
-.gpa-summary th:first-child {
+.gpa-summary-term {
   width: 40%;
+}
+
+.gpa-summary th:first-child {
   font-weight: 400;
   white-space: normal;
   overflow-wrap: anywhere;
@@ -5854,44 +5857,54 @@ table.rows.gpa-summary tr.total > * {
 
 .gpa-term {
   --gpa-column-width: 72px;
+  --gpa-grip-width: 32px;
   --gpa-min-name-width: 120px;
+  --gpa-frozen-width: calc(var(--gpa-grip-width) + var(--gpa-min-name-width));
   --gpa-excluded-color: #757a75;
 }
 .gpa-term .category-table-shell {
   --gpa-fixed-width: calc(5 * var(--gpa-column-width) + var(--actions-width));
 }
 table.rows.gpa-courses {
-  min-width: calc(var(--gpa-min-name-width) + var(--gpa-fixed-width));
+  min-width: calc(var(--gpa-frozen-width) + var(--gpa-fixed-width));
 }
+.gpa-courses .gpa-grip-column { width: var(--gpa-grip-width); }
 .gpa-courses .gpa-fixed-column { width: var(--gpa-column-width); }
 .gpa-courses .gpa-actions-column { width: var(--actions-width); }
 
-table.rows.gpa-courses th:first-child,
-table.rows.gpa-courses td:first-child {
+table.rows.gpa-courses :is(.sticky-grip, .sticky-name) {
   position: sticky;
-  left: 0;
   z-index: 6;
   background: #181a18;
 }
-table.rows.gpa-courses thead th:first-child { z-index: 10; }
+table.rows.gpa-courses .sticky-grip {
+  left: 0;
+  z-index: 7;
+  padding: 0;
+}
+table.rows.gpa-courses .sticky-name {
+  left: var(--gpa-grip-width);
+  text-align: left;
+}
+table.rows.gpa-courses thead :is(.sticky-grip, .sticky-name) { z-index: 10; }
 
-table.rows.gpa-courses thead th:not(:first-child) {
+table.rows.gpa-courses thead th:nth-child(n+3) {
   padding: 0;
   text-align: center;
 }
-table.rows.gpa-courses thead th:not(:first-child, :last-child) { position: relative; }
-table.rows.gpa-courses thead th:not(:first-child) > span {
+table.rows.gpa-courses thead th:nth-child(n+3):not(:last-child) { position: relative; }
+table.rows.gpa-courses thead th:nth-child(n+3) > span {
   position: absolute;
   inset: 0;
   display: grid;
   place-items: center;
 }
-table.rows.gpa-courses thead th:not(:first-child):nth-last-child(n+3) > span { right: -1px; }
+table.rows.gpa-courses thead th:nth-child(n+3):nth-last-child(n+3) > span { right: -1px; }
 table.rows.gpa-courses thead th:last-child > span { left: -1px; }
 
-/* Keep the left scroll fade off the frozen, flexible Course track. */
+/* Keep the scroll fade off the frozen grip and Course columns. */
 .gpa-course-scroll-frame::before {
-  left: max(var(--gpa-min-name-width), calc(100% - var(--gpa-fixed-width)));
+  left: max(var(--gpa-frozen-width), calc(100% - var(--gpa-fixed-width)));
 }
 
 table.rows.gpa-courses td:has(input),
@@ -5915,7 +5928,7 @@ table.rows.gpa-courses td:has(.gpa-grade-trigger) {
   text-align: center;
 }
 
-.gpa-courses td:first-child input { text-align: left; padding-right: 11px; padding-left: 11px; }
+.gpa-courses .sticky-name input { text-align: left; padding-right: 11px; padding-left: 11px; }
 .gpa-courses .gpa-grade-trigger {
   display: grid;
   place-items: center;
@@ -5926,10 +5939,10 @@ table.rows.gpa-table td.gpa-na { color: #60665f !important; }
 
 table.rows.gpa-table tbody tr:hover > * { color: #fff; }
 
-table.rows.gpa-courses tr.gpa-excluded > td:nth-child(n+2):nth-child(-n+5) {
+table.rows.gpa-courses tr.gpa-excluded > td:nth-child(n+3):nth-child(-n+6) {
   color: var(--gpa-excluded-color);
 }
-.gpa-excluded :is(.gpa-grade-trigger, td:nth-child(3) input) { color: inherit; }
+.gpa-excluded :is(.gpa-grade-trigger, td:nth-child(4) input) { color: inherit; }
 
 table.rows.gpa-courses td.gpa-include-cell {
   position: relative;

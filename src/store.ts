@@ -449,6 +449,15 @@ export const store = {
     const index = source.courses.findIndex((course) => course.id === id);
     destination.courses.push(source.courses.splice(index, 1)[0]!);
   }),
+  reorderGpaCourses: (termId: string, ids: string[]) => mutate((data) => {
+    const term = gpaTermById(data, termId);
+    const byId = new Map(term.courses.map((course) => [course.id, course]));
+    if (ids.length !== term.courses.length || new Set(ids).size !== ids.length ||
+        ids.some((id) => !byId.has(id))) {
+      throw new Error("The term's course list changed. Try reordering it again.");
+    }
+    term.courses = ids.map((id) => byId.get(id)!);
+  }),
   deleteGpaCourse: (id: string) => mutate((data) => {
     for (const term of data.gpaTerms) term.courses = term.courses.filter((course) => course.id !== id);
   }),

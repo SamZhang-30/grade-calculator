@@ -2,8 +2,9 @@ import { useLayoutEffect, useState, type ReactNode } from "react";
 import { calculateGpa, formatGpa as displayGpa, gpaCourseResult, parseGpaUnits, totalCoursework, validGpaUnits, GPA_SOURCE, type GpaCourse, type GpaTerm } from "../gpa";
 import { store } from "../store";
 import { useHistoryRevision } from "../history-ui";
-import { DuplicateIcon, GearIcon, GradeModal, MoveRowButton, PlusIcon, ScrollViewport, TrashIcon } from "./GradeSheet";
+import { DuplicateIcon, GearIcon, GradeModal, MoveRowButton, PlusIcon, ScrollViewport, TableRowGrip, TrashIcon } from "./GradeSheet";
 import { GpaGradePicker } from "./GpaGradePicker";
+import { useTableRowDrag, type TableRowDrag } from "./useTableRowDrag";
 
 const number = (value: number) => Number(value.toFixed(2)).toString();
 type Run = (action: () => Promise<unknown>) => Promise<void>;
@@ -47,13 +48,36 @@ export function GpaSheet({ terms, switcher, historyControls, onChanged }: {
           <div className="summary-table-shell gpa-summary-shell">
             <ScrollViewport className="gpa-summary-scroll">
               <table className="rows gpa-table gpa-summary" aria-label="GPA by term">
-                <thead><tr><th scope="col">Term</th><th scope="col">GPA</th><th scope="col">GPA units</th><th scope="col">Grade points</th></tr></thead>
+                <colgroup><col className="gpa-summary-term" /><col span={4} /></colgroup>
+                <thead>
+                  <tr>
+                    <th scope="col">Term</th>
+                    <th scope="col">GPA</th>
+                    <th scope="col">Units</th>
+                    <th scope="col">GPA Units</th>
+                    <th scope="col">Points</th>
+                  </tr>
+                </thead>
                 <tbody>
                   {terms.map((term) => {
                     const result = calculateGpa(term.courses);
-                    return <tr key={term.id}><th scope="row">{term.name}</th><td className={result.gpa === null ? "gpa-na" : ""}>{displayGpa(result.gpa)}</td><td>{number(result.units)}</td><td>{number(result.qualityPoints)}</td></tr>;
+                    return (
+                      <tr key={term.id}>
+                        <th scope="row">{term.name}</th>
+                        <td className={result.gpa === null ? "gpa-na" : ""}>{displayGpa(result.gpa)}</td>
+                        <td>{number(totalCoursework(term.courses).units)}</td>
+                        <td>{number(result.units)}</td>
+                        <td>{number(result.qualityPoints)}</td>
+                      </tr>
+                    );
                   })}
-                  <tr className="total"><th scope="row">Total</th><td className={total.gpa === null ? "gpa-na" : ""}>{displayGpa(total.gpa)}</td><td>{number(total.units)}</td><td>{number(total.qualityPoints)}</td></tr>
+                  <tr className="total">
+                    <th scope="row">Total</th>
+                    <td className={total.gpa === null ? "gpa-na" : ""}>{displayGpa(total.gpa)}</td>
+                    <td>{courseworkUnits}</td>
+                    <td>{number(total.units)}</td>
+                    <td>{number(total.qualityPoints)}</td>
+                  </tr>
                 </tbody>
               </table>
             </ScrollViewport>
@@ -84,6 +108,16 @@ export function GpaSheet({ terms, switcher, historyControls, onChanged }: {
   );
 }
 
+function applyCourseDrag(courses: GpaCourse[], drag: TableRowDrag | null): GpaCourse[] {
+  if (!drag) return courses;
+  const from = courses.findIndex((course) => course.id === drag.rowId);
+  if (from < 0 || from === drag.index) return courses;
+  const next = [...courses];
+  const [course] = next.splice(from, 1);
+  next.splice(drag.index, 0, course!);
+  return next;
+}
+
 function TermTable({ term, destinations, run }: { term: GpaTerm; destinations: GpaTerm[]; run: Run }) {
   const [panel, setPanel] = useState<"settings" | "delete" | null>(null);
   const [name, setName] = useState(term.name);
@@ -92,12 +126,17 @@ function TermTable({ term, destinations, run }: { term: GpaTerm; destinations: G
   const result = calculateGpa(term.courses);
   const gpaUnits = number(result.units);
   const totalUnits = number(totalCoursework(term.courses).units);
+  const { drag, startDrag } = useTableRowDrag((dropped) => {
+    const next = applyCourseDrag(term.courses, dropped);
+    if (next !== term.courses) void run(() => store.reorderGpaCourses(term.id, next.map((course) => course.id)));
+  }, { withinGroup: true });
+  const rows = applyCourseDrag(term.courses, drag);
   const saveName = () => {
     if (!name.trim()) { setName(term.name); return; }
     if (name.trim() !== term.name) void run(() => store.renameGpaTerm(term.id, name));
   };
   return (
-    <section className="grade-category gpa-term">
+    <section className={`grade-category gpa-term${drag ? " grades-dragging" : ""}`}>
       <div className="grade-head">
         <div className="grade-heading"><h4>{term.name}</h4><p className="weight-line">GPA: {displayGpa(result.gpa)} • {gpaUnits} GPA {gpaUnits === "1" ? "unit" : "units"} • {totalUnits} {totalUnits === "1" ? "unit" : "units"} total</p></div>
         <button className="ghost icon add-assignment" aria-label={`Add course to ${term.name}`} onClick={() => void run(() => store.addGpaCourse(term.id))}><PlusIcon /></button>
@@ -108,18 +147,19 @@ function TermTable({ term, destinations, run }: { term: GpaTerm; destinations: G
         <div className="category-table-shell">
           <ScrollViewport className="gpa-course-scroll">
             <table className="rows gpa-table gpa-courses" aria-label={`Courses in ${term.name}`}>
-              <colgroup><col /><col span={5} className="gpa-fixed-column" /><col className="gpa-actions-column" /></colgroup>
+              <colgroup><col className="gpa-grip-column" /><col /><col span={5} className="gpa-fixed-column" /><col className="gpa-actions-column" /></colgroup>
               <thead>
                 <tr>
-                  <th scope="col">Course</th>
+                  <th scope="col" className="sticky-grip" aria-label="Reorder courses" />
+                  <th scope="col" className="sticky-name">Course</th>
                   {["Grade", "Units", "Value", "Points", "Final", "Actions"].map((label) => (
                     <th scope="col" key={label}><span>{label}</span></th>
                   ))}
                 </tr>
               </thead>
-              <tbody>{term.courses.map((course, index) => (
+              <tbody data-row-group={term.id}>{rows.map((course, index) => (
                 <CourseRow key={course.id} course={course} rowLabel={`${term.name} course ${index + 1}`}
-                  destinations={destinations} run={run} />
+                  destinations={destinations} dragging={course.id === drag?.rowId} onDragStart={startDrag} run={run} />
               ))}</tbody>
             </table>
           </ScrollViewport>
@@ -142,10 +182,12 @@ function TermTable({ term, destinations, run }: { term: GpaTerm; destinations: G
   );
 }
 
-function CourseRow({ course, rowLabel, destinations, run }: {
+function CourseRow({ course, rowLabel, destinations, dragging, onDragStart, run }: {
   course: GpaCourse;
   rowLabel: string;
   destinations: GpaTerm[];
+  dragging: boolean;
+  onDragStart: (event: React.PointerEvent) => void;
   run: Run;
 }) {
   const [name, setName] = useState(course.name);
@@ -168,8 +210,9 @@ function CourseRow({ course, rowLabel, destinations, run }: {
     if (value !== course.units) void run(() => store.updateGpaCourse(course.id, { units: value }));
   };
   return (
-    <tr className={included ? undefined : "gpa-excluded"}>
-      <td><input aria-label={`${rowLabel} name`} placeholder="—" value={name} onChange={(event) => setName(event.target.value)} onBlur={() => name !== course.name && void run(() => store.updateGpaCourse(course.id, { name }))} onKeyDown={(event) => event.key === "Enter" && event.currentTarget.blur()} /></td>
+    <tr data-row-id={course.id} className={`${included ? "" : "gpa-excluded"}${dragging ? " dragging" : ""}`}>
+      <TableRowGrip name={course.name || rowLabel} title="Drag to reorder within this term" onDragStart={onDragStart} />
+      <td className="sticky-name"><input aria-label={`${rowLabel} name`} placeholder="—" value={name} onChange={(event) => setName(event.target.value)} onBlur={() => name !== course.name && void run(() => store.updateGpaCourse(course.id, { name }))} onKeyDown={(event) => event.key === "Enter" && event.currentTarget.blur()} /></td>
       <td><GpaGradePicker grade={course.grade} label={`${rowLabel} grade`}
         onSelect={(grade) => void run(() => store.updateGpaCourse(course.id, { grade }))} /></td>
       <td><input aria-label={`${rowLabel} units`} inputMode="numeric" pattern="[0-9]*" placeholder="—" value={units} aria-invalid={invalidUnits} title={invalidUnits ? "Enter a whole number of units (0 or more), or leave blank." : "Applicable course units (whole numbers, 0 or more)"} onChange={(event) => { setUnits(event.target.value); setInvalidUnits(false); }} onBlur={commitUnits} onKeyDown={(event) => event.key === "Enter" && event.currentTarget.blur()} /></td>

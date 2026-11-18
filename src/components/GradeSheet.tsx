@@ -30,6 +30,7 @@ import {
 import { signedChange as signed, changeTone as tone } from "../grade-display";
 import { autofillAssignmentName } from "../autofill";
 import { DialogSurface } from "./DialogSurface";
+import { useTableRowDrag, type TableRowDrag } from "./useTableRowDrag";
 import {
   api,
   store,
@@ -178,6 +179,18 @@ function GripIcon() {
   );
 }
 
+export function TableRowGrip({ name, title, onDragStart }: {
+  name: string;
+  title: string;
+  onDragStart: (event: React.PointerEvent) => void;
+}) {
+  return (
+    <td className="sticky-col sticky-grip grip" onPointerDown={onDragStart} title={title} aria-label={`Reorder ${name}`}>
+      <GripIcon />
+    </td>
+  );
+}
+
 const STATUS_LABEL: Record<GradeStatus, string> = {
   RETURNED: "returned",
   ESTIMATED: "estimated",
@@ -268,14 +281,6 @@ function ImpactCell({ impact, finalImpact, showFinal }: {
   );
 }
 
-/** A row being dragged, and where it would land if released now. */
-interface Drag {
-  entryId: string;
-  fromCategoryId: string;
-  overCategoryId: string;
-  overIndex: number;
-}
-
 type AutofillField = "name" | "points" | "max" | "status";
 
 type AutofillSeed =
@@ -319,17 +324,17 @@ function AutofillHandle({
  * mid-drag is exactly what gets saved -- including the recalculated weights
  * when a row crosses into a category with a different weighting.
  */
-function applyDrag(categories: GradeCategoryRow[], drag: Drag | null): GradeCategoryRow[] {
+function applyDrag(categories: GradeCategoryRow[], drag: TableRowDrag | null): GradeCategoryRow[] {
   if (!drag) return categories;
-  const moving = categories.flatMap((c) => c.entries).find((e) => e.id === drag.entryId);
+  const moving = categories.flatMap((c) => c.entries).find((e) => e.id === drag.rowId);
   if (!moving) return categories;
 
   return categories.map((category) => {
-    const entries = category.entries.filter((e) => e.id !== drag.entryId);
-    if (category.id !== drag.overCategoryId) {
+    const entries = category.entries.filter((e) => e.id !== drag.rowId);
+    if (category.id !== drag.groupId) {
       return entries.length === category.entries.length ? category : { ...category, entries };
     }
-    const index = Math.max(0, Math.min(drag.overIndex, entries.length));
+    const index = Math.max(0, Math.min(drag.index, entries.length));
     return { ...category, entries: [...entries.slice(0, index), moving, ...entries.slice(index)] };
   }).map((category) => ({
     ...category,
@@ -712,22 +717,6 @@ export function GradeSheet({
   const [error, setError] = useState("");
   const [draft, setDraft] = useState({ name: "", weight: "" });
 
-  // The ref is the authority; the state exists only so React re-renders the
-  // preview. The commit reads the REF -- StrictMode double-invokes updaters,
-  // and a write from inside one would fire twice.
-  const dragRef = useRef<Drag | null>(null);
-  const [drag, setDrag] = useState<Drag | null>(null);
-
-  const layout = useMemo(() => applyDrag(categories, drag), [categories, drag]);
-  const { summary, prediction } = useSheet(
-    layout,
-    defaults.gradeAlpha,
-    defaults.gradeBasis,
-    defaults.gradeIncludeEstimates,
-    defaults.gradeCapForecast,
-    defaults.gradeCurrentWeighting,
-  );
-
   const run = async (fn: () => Promise<unknown>) => {
     try {
       await fn();
@@ -738,80 +727,20 @@ export function GradeSheet({
     }
   };
 
-  // Kept in a ref so the pointer listeners below never close over a stale one.
-  const commitRef = useRef<(drag: Drag) => void>(() => {});
-  commitRef.current = (dropped) => {
+  const { drag, startDrag } = useTableRowDrag((dropped) => {
     const next = applyDrag(categories, dropped);
     if (JSON.stringify(orderOf(next)) === JSON.stringify(orderOf(categories))) return;
     void run(() => api.reorderGrades(itemId, orderOf(next)));
-  };
-
-  const dragging = drag !== null;
-  useEffect(() => {
-    if (!dragging) return;
-
-    const move = (event: PointerEvent) => {
-      const current = dragRef.current;
-      if (!current) return;
-      const under = document.elementFromPoint(event.clientX, event.clientY);
-      const body = under?.closest("tbody[data-category]") as HTMLElement | null;
-      if (!body) return;
-
-      const categoryId = body.dataset.category!;
-      const rows = [...body.querySelectorAll<HTMLElement>("tr[data-entry]")].filter(
-        (r) => r.dataset.entry !== current.entryId,
-      );
-      const row = under?.closest("tr[data-entry]") as HTMLElement | null;
-
-      let index = rows.length;
-      if (row && row.dataset.entry !== current.entryId) {
-        const rect = row.getBoundingClientRect();
-        index = rows.indexOf(row) + (event.clientY > rect.top + rect.height / 2 ? 1 : 0);
-      } else if (row) {
-        return; // hovering the row being dragged: nothing has changed
-      }
-
-      if (current.overCategoryId === categoryId && current.overIndex === index) return;
-      const next = { ...current, overCategoryId: categoryId, overIndex: index };
-      dragRef.current = next;
-      setDrag(next);
-    };
-
-    const finish = (commit: boolean) => {
-      const dropped = dragRef.current;
-      dragRef.current = null;
-      setDrag(null);
-      if (dropped && commit) commitRef.current(dropped);
-    };
-
-    const end = () => finish(true);
-    const cancel = () => finish(false);
-
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", end);
-    window.addEventListener("pointercancel", cancel);
-    return () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", end);
-      window.removeEventListener("pointercancel", cancel);
-    };
-  }, [dragging]);
-
-  const startDrag = (event: React.PointerEvent, entryId: string, categoryId: string) => {
-    if (event.button !== 0) return;
-    event.preventDefault();
-    const index = categories
-      .find((c) => c.id === categoryId)!
-      .entries.findIndex((e) => e.id === entryId);
-    const next = {
-      entryId,
-      fromCategoryId: categoryId,
-      overCategoryId: categoryId,
-      overIndex: index,
-    };
-    dragRef.current = next;
-    setDrag(next);
-  };
+  });
+  const layout = useMemo(() => applyDrag(categories, drag), [categories, drag]);
+  const { summary, prediction } = useSheet(
+    layout,
+    defaults.gradeAlpha,
+    defaults.gradeBasis,
+    defaults.gradeIncludeEstimates,
+    defaults.gradeCapForecast,
+    defaults.gradeCurrentWeighting,
+  );
 
   const addCategory = async () => {
     if (!draft.name.trim()) return;
@@ -829,7 +758,7 @@ export function GradeSheet({
   };
 
   return (
-    <div className={dragging ? "grades-dragging" : undefined}>
+    <div className={drag ? "grades-dragging" : undefined}>
       <header className="course-head">
         {courseHeader}
         <div className="head-actions course-toolbar">
@@ -877,7 +806,7 @@ export function GradeSheet({
           courseId={itemId}
           destinations={layout.filter((other) => other.id !== category.id)}
           summary={summary.categories[i]!}
-          draggingId={drag?.entryId ?? null}
+          draggingId={drag?.rowId ?? null}
           defaults={defaults}
           onDragStart={startDrag}
           run={run}
@@ -1532,7 +1461,7 @@ function CategoryTable({
   summary: CategorySummary;
   draggingId: string | null;
   defaults: GradeDefaults;
-  onDragStart: (event: React.PointerEvent, entryId: string, categoryId: string) => void;
+  onDragStart: (event: React.PointerEvent) => void;
   run: (fn: () => Promise<unknown>) => Promise<void>;
 }) {
   const storedNameWidth = Number.isFinite(category.nameColumnWidth) ? category.nameColumnWidth : 180;
@@ -1596,11 +1525,11 @@ function CategoryTable({
       if (!current || event.pointerId !== current.pointerId) return;
 
       const under = document.elementFromPoint(event.clientX, event.clientY);
-      const row = under?.closest<HTMLElement>("tr[data-entry]");
-      const body = row?.closest<HTMLElement>("tbody[data-category]");
-      if (!row || body?.dataset.category !== category.id) return;
+      const row = under?.closest<HTMLElement>("tr[data-row-id]");
+      const body = row?.closest<HTMLElement>("tbody[data-row-group]");
+      if (!row || body?.dataset.rowGroup !== category.id) return;
 
-      const index = category.entries.findIndex((entry) => entry.id === row.dataset.entry);
+      const index = category.entries.findIndex((entry) => entry.id === row.dataset.rowId);
       if (index < 0 || index === current.overIndex) return;
 
       const next = { ...current, overIndex: index };
@@ -1779,7 +1708,7 @@ function CategoryTable({
               <th className="row-actions">Actions</th>
             </tr>
           </thead>
-          <tbody data-category={category.id}>
+          <tbody data-row-group={category.id}>
             {category.entries.map((entry, i) => (
               // Keep the row and its controls mounted through edits and
               // reordering. EntryRow synchronizes committed values separately.
@@ -1791,7 +1720,7 @@ function CategoryTable({
                 summary={summary.entries[i]!}
                 showFinalImpact={defaults.gradeCurrentWeighting === "FINAL_ASSIGNMENT"}
                 dragging={draggingId === entry.id}
-                onDragStart={(e) => onDragStart(e, entry.id, category.id)}
+                onDragStart={onDragStart}
                 rowIndex={i}
                 autofill={autofill}
                 onAutofillStart={(event, seed) =>
@@ -1900,17 +1829,10 @@ function EntryRow({
 
   return (
     <tr
-      data-entry={entry.id}
+      data-row-id={entry.id}
       className={`${summary.counted ? "" : "pending"}${dragging ? " dragging" : ""}`}
     >
-      <td
-        className="sticky-col sticky-grip grip"
-        onPointerDown={onDragStart}
-        title="Drag to reorder or move category"
-        aria-label={`Reorder ${entry.name}`}
-      >
-        <GripIcon />
-      </td>
+      <TableRowGrip name={entry.name} title="Drag to reorder or move category" onDragStart={onDragStart} />
       <td className={autofillCellClass("name", "sticky-col sticky-name name-cell")}>
         <input
           title={name}
