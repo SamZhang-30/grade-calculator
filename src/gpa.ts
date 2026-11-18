@@ -23,6 +23,7 @@ export interface GpaCourse {
   name: string;
   grade: GpaGrade;
   units: number | null;
+  excludedFromGpa?: true;
 }
 export interface GpaTerm {
   id: string;
@@ -70,6 +71,7 @@ export function calculateGpa(courses: readonly GpaCourse[]) {
   let qualityPoints = 0;
   let countedCourses = 0;
   for (const course of courses) {
+    if (course.excludedFromGpa) continue;
     const result = gpaCourseResult(course);
     units += result.units;
     qualityPoints += result.qualityPoints;
@@ -93,7 +95,8 @@ export function normalizeGpaTerms(value: unknown): GpaTerm[] {
         // Keep previously accepted fractional values visible for correction,
         // rather than silently erasing or rounding them. Calculations exclude
         // them under the whole-unit rule, and the input flags them as invalid.
-        units: typeof course.units === "number" && Number.isFinite(course.units) && course.units >= 0 ? course.units : null }];
+        units: typeof course.units === "number" && Number.isFinite(course.units) && course.units >= 0 ? course.units : null,
+        ...(course.excludedFromGpa === true ? { excludedFromGpa: true } : {}) }];
     });
     return [{ id: term.id, name: typeof term.name === "string" ? term.name : "Untitled term", courses }];
   });

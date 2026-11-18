@@ -7,6 +7,7 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
 import {
   DEFAULT_GRADE_CONFIG,
   GRADEBOOK_FORMAT,
@@ -191,23 +192,9 @@ function NotApplicable() {
   return <span className="not-applicable">N/A</span>;
 }
 
-/**
- * How much is still undecided, counted in the unit the category is weighed in.
- *
- * A points-weighted category is missing POINTS; an evenly weighted one is
- * missing ASSIGNMENTS, because that is what its weight is divided between. The
- * same "30 (4.29%)" means two different things in the two modes, so it should
- * not be spelled the same way.
- */
 /** Pooling is points-proportional by definition, so the toggle cannot apply. */
 const byMaxOf = (category: GradeCategoryRow | undefined) =>
   category === undefined || category.weightMode === "POOLED" ? true : category.weightByMax;
-
-const atStakeLabel = (category: CategorySummary, byMax: boolean) => {
-  return byMax
-    ? `${round(category.atStakePoints, 2)} pts.`
-    : `${category.atStakeCount} ents.`;
-};
 
 /** A projection reads as one number when its ends round together, else a range. */
 const range = (interval: Interval | null) => {
@@ -228,6 +215,56 @@ function CurveSwap({ curved, raw }: { curved: string; raw: string }) {
       <span className="curve-applied">{curved}</span>
       <span className="curve-raw">{raw}</span>
     </>
+  );
+}
+
+function AtStakeCell({ category, byMax }: { category: CategorySummary; byMax: boolean }) {
+  const value = byMax ? round(category.atStakePoints, 2) : category.atStakeCount;
+  const [single, plural, singleShort, pluralShort] = byMax
+    ? ["point", "points", "pt", "pts."]
+    : ["entry", "entries", "ent.", "ents."];
+  const full = `${value} ${value === 1 ? single : plural}`;
+  const short = `${value} ${value === 1 ? singleShort : pluralShort}`;
+  const percent = pct(category.atStakePercent);
+  const content = useRef<HTMLSpanElement>(null);
+  const label = useRef<HTMLSpanElement>(null);
+  const [fits, setFits] = useState(true);
+
+  useLayoutEffect(() => {
+    const box = content.current!;
+    const sample = label.current!;
+    const measure = () => setFits(sample.getBoundingClientRect().width <= box.getBoundingClientRect().width);
+    measure();
+    const observer = new ResizeObserver(measure);
+    // Both the cell width and the rendered text can change independently.
+    observer.observe(box);
+    observer.observe(sample);
+    return () => observer.disconnect();
+  }, [full]);
+
+  return (
+    <td className="at-stake-cell" aria-label={`${percent} at stake, ${full}`}>
+      <span className="at-stake-value" ref={content}>
+        <CurveSwap curved={percent} raw={fits ? full : short} />
+        <span className="at-stake-measure" aria-hidden="true" ref={label}>{full}</span>
+      </span>
+    </td>
+  );
+}
+
+function ImpactCell({ impact, finalImpact, showFinal }: {
+  impact: number;
+  finalImpact: number;
+  showFinal: boolean;
+}) {
+  const current = signed(impact);
+  if (!showFinal) return <td className={tone(impact)}>{current}</td>;
+
+  const final = signed(finalImpact);
+  return (
+    <td className={`impact-cell ${tone(impact)}`} aria-label={`Current impact ${current}, final-grade impact ${final}`}>
+      <CurveSwap curved={current} raw={final} />
+    </td>
   );
 }
 
@@ -396,6 +433,62 @@ export function GradeModal({
         {children}
       </DialogSurface>
     </div>
+  );
+}
+
+type MoveDestination = { id: string; name: string };
+
+export function MoveRowButton({ itemName, target, destinations, onMove }: {
+  itemName: string;
+  target: "category" | "term";
+  destinations: readonly MoveDestination[];
+  onMove: (id: string) => Promise<void>;
+}) {
+  const trigger = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false);
+  const [destination, setDestination] = useState("");
+  const [error, setError] = useState("");
+  const title = `Move to another ${target}`;
+  const available = destinations.some((item) => item.id === destination);
+  const close = () => setOpen(false);
+
+  return (
+    <>
+      <button ref={trigger} type="button" className="ghost icon"
+        aria-label={`Move ${itemName} to another ${target}`} aria-haspopup="dialog" aria-expanded={open}
+        disabled={!destinations.length} title={destinations.length ? title : `Add another ${target} to move this row`}
+        onClick={() => { setDestination(""); setError(""); setOpen(true); }}>
+        <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" fill="none"
+          stroke="currentColor" strokeWidth="1.35" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M6 3H3.5A1.5 1.5 0 0 0 2 4.5v7A1.5 1.5 0 0 0 3.5 13H6M5 8h9m-3.5-3.5L14 8l-3.5 3.5" />
+        </svg>
+      </button>
+      {open ? createPortal(
+        <GradeModal className="confirm" label={title} onClose={close}>
+          <div className="dialog-head"><h2>{title}</h2></div>
+          <form onSubmit={async (event) => {
+            event.preventDefault();
+            if (!available) return;
+            try { await onMove(destination); close(); }
+            catch (cause) { setError((cause as Error).message); }
+          }}>
+            <label className="field-row">
+              <span><b>{target === "category" ? "Category" : "Term"}</b><small>{itemName}</small></span>
+              <select value={available ? destination : ""} required onChange={(event) => setDestination(event.target.value)}>
+                <option value="" disabled>Choose a {target}</option>
+                {destinations.map(({ id, name }) => <option key={id} value={id}>{name}</option>)}
+              </select>
+            </label>
+            {error ? <p className="err" role="alert">{error}</p> : null}
+            <div className="confirm-actions">
+              <button type="button" className="ghost tiny" onClick={close}>Cancel</button>
+              <button className="primary-button" disabled={!available}>Move</button>
+            </div>
+          </form>
+        </GradeModal>,
+        trigger.current?.closest(".app-shell") ?? document.body,
+      ) : null}
+    </>
   );
 }
 
@@ -769,7 +862,8 @@ export function GradeSheet({
               prediction={prediction}
               confidence={1 - defaults.gradeAlpha}
             />
-            <SummaryTable summary={summary} prediction={prediction} categories={layout} />
+            <SummaryTable summary={summary} prediction={prediction} categories={layout}
+              showFinalImpact={defaults.gradeCurrentWeighting === "FINAL_ASSIGNMENT"} />
           </>
         )}
 
@@ -780,6 +874,8 @@ export function GradeSheet({
         <CategoryTable
           key={category.id}
           category={category}
+          courseId={itemId}
+          destinations={layout.filter((other) => other.id !== category.id)}
           summary={summary.categories[i]!}
           draggingId={drag?.entryId ?? null}
           defaults={defaults}
@@ -821,6 +917,93 @@ export function GradeSheet({
  * Same two dials as a category's, one level up. Kept behind the same icon so
  * the relationship is obvious -- this is the row the per-category ones inherit.
  */
+function CategoryOrder({ categories, onReorder }: {
+  categories: GradeCategoryRow[];
+  onReorder: (ids: string[]) => void;
+}) {
+  const list = useRef<HTMLOListElement>(null);
+  const drag = useRef<{ id: string; pointerId: number; order: string[] } | null>(null);
+  const focusRow = useRef<string | null>(null);
+  const [preview, setPreview] = useState<string[] | null>(null);
+  const ids = categories.map((category) => category.id);
+
+  useLayoutEffect(() => {
+    if (!focusRow.current) return;
+    [...(list.current?.querySelectorAll("button") ?? [])]
+      .find((button) => button.dataset.orderId === focusRow.current)?.focus();
+    focusRow.current = null;
+  }, [categories]);
+
+  const itemAt = (event: React.PointerEvent) => {
+    const row = document.elementFromPoint(event.clientX, event.clientY)
+      ?.closest<HTMLButtonElement>("button[data-order-id]");
+    return row && list.current?.contains(row) ? row : null;
+  };
+
+  const finish = (event: React.PointerEvent, commit: boolean) => {
+    const moving = drag.current;
+    if (!moving || moving.pointerId !== event.pointerId) return;
+    drag.current = null;
+    setPreview(null);
+    if (commit && itemAt(event) && moving.order.some((id, index) => id !== ids[index])) {
+      onReorder(moving.order);
+    }
+  };
+
+  return (
+    <ol className="category-order" ref={list} aria-label="Category order"
+      onPointerMove={(event) => {
+        const moving = drag.current;
+        if (!moving || moving.pointerId !== event.pointerId) return;
+        const target = itemAt(event);
+        const targetId = target?.dataset.orderId;
+        if (!target || !targetId || targetId === moving.id) return;
+        const remaining = moving.order.filter((id) => id !== moving.id);
+        const targetIndex = remaining.indexOf(targetId);
+        if (targetIndex < 0) return;
+        const { top, height } = target.getBoundingClientRect();
+        const index = targetIndex + (event.clientY > top + height / 2 ? 1 : 0);
+        if (index === moving.order.indexOf(moving.id)) return;
+        remaining.splice(index, 0, moving.id);
+        moving.order = remaining;
+        setPreview(remaining);
+      }}
+      onPointerUp={(event) => finish(event, true)}
+      onPointerCancel={(event) => finish(event, false)}
+      onLostPointerCapture={(event) => finish(event, false)}>
+      {(preview ?? ids).map((id) => {
+        const category = categories.find((item) => item.id === id);
+        if (!category) return null;
+        return (
+          <li key={id}>
+            <button type="button" className={`category-order-row${preview && drag.current?.id === id ? " dragging" : ""}`}
+              data-order-id={id} aria-label={`Reorder ${category.name}`} aria-keyshortcuts="ArrowUp ArrowDown"
+              onPointerDown={(event) => {
+                if (event.button !== 0 || drag.current) return;
+                list.current?.setPointerCapture(event.pointerId);
+                drag.current = { id, pointerId: event.pointerId, order: ids };
+              }}
+              onKeyDown={(event) => {
+                if (drag.current || (event.key !== "ArrowUp" && event.key !== "ArrowDown")) return;
+                event.preventDefault();
+                const from = ids.indexOf(id);
+                const to = from + (event.key === "ArrowUp" ? -1 : 1);
+                if (to < 0 || to >= ids.length) return;
+                ids.splice(from, 1);
+                ids.splice(to, 0, id);
+                focusRow.current = id;
+                onReorder(ids);
+              }}>
+              <GripIcon />
+              <span>{category.name}</span>
+            </button>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
 function CourseCalculations({
   itemId,
   course,
@@ -961,6 +1144,16 @@ function CourseCalculations({
               </label>
             </div>
           </section>
+
+          {categories.length > 1 ? (
+            <section className="settings-group">
+              <div className="settings-group-heading">
+                <b>Category order</b>
+                <small>Drag a row or use the up and down arrow keys.</small>
+              </div>
+              <CategoryOrder categories={categories} onReorder={(ids) => void run(() => api.reorderGradeCategories(itemId, ids))} />
+            </section>
+          ) : null}
 
           <section className="settings-group">
             <div className="settings-group-heading">
@@ -1149,10 +1342,12 @@ function SummaryTable({
   summary,
   prediction,
   categories,
+  showFinalImpact,
 }: {
   summary: GradeSummary;
   prediction: ReturnType<typeof forecast>;
   categories: GradeCategoryRow[];
+  showFinalImpact: boolean;
 }) {
   const tableRef = useRef<HTMLTableElement | null>(null);
   const [categoryWidth, setCategoryWidth] = useState(140);
@@ -1259,13 +1454,11 @@ function SummaryTable({
                 <td className="weight-cell" aria-label={`Current weight ${pct(c.weight)}; final weight ${pct(c.finalWeight)}`}>
                   <CurveSwap curved={pct(c.weight)} raw={pct(c.finalWeight)} />
                 </td>
-                <td className={c.percent === null ? undefined : tone(c.impact)}>
-                  {c.percent === null ? <NotApplicable /> : signed(c.impact)}
-                </td>
+                {c.percent === null ? <td><NotApplicable /></td> : (
+                  <ImpactCell impact={c.impact} finalImpact={c.finalImpact} showFinal={showFinalImpact} />
+                )}
                 <td>{c.percent === null ? <NotApplicable /> : pct(f.sd)}</td>
-                <td className="at-stake-cell">
-                  <CurveSwap curved={pct(c.atStakePercent)} raw={atStakeLabel(c, byMaxOf(category))} />
-                </td>
+                <AtStakeCell category={c} byMax={byMaxOf(category)} />
                 <td
                   className={`proj proj-start${curved ? " curved-cell" : ""}`}
                   title={curved ? "Curved forecast — hover to see the raw forecast" : undefined}
@@ -1302,9 +1495,9 @@ function SummaryTable({
                 raw={pct(1 - summary.atStakePercent)}
               />
             </td>
-            <td className={tone(summary.impact)}>
-              {summary.percent === null ? "—" : signed(summary.impact)}
-            </td>
+            {summary.percent === null ? <td className={tone(summary.impact)}>—</td> : (
+              <ImpactCell impact={summary.impact} finalImpact={summary.finalImpact} showFinal={showFinalImpact} />
+            )}
             <td>{pct(prediction.sd)}</td>
             <td>{pct(summary.atStakePercent)}</td>
             <td className="proj proj-start">{range(prediction.expected)}</td>
@@ -1325,6 +1518,8 @@ function SummaryTable({
 
 function CategoryTable({
   category,
+  courseId,
+  destinations,
   summary,
   draggingId,
   defaults,
@@ -1332,6 +1527,8 @@ function CategoryTable({
   run,
 }: {
   category: GradeCategoryRow;
+  courseId: string;
+  destinations: readonly MoveDestination[];
   summary: CategorySummary;
   draggingId: string | null;
   defaults: GradeDefaults;
@@ -1589,7 +1786,10 @@ function CategoryTable({
               <EntryRow
                 key={entry.id}
                 entry={entry}
+                courseId={courseId}
+                destinations={destinations}
                 summary={summary.entries[i]!}
+                showFinalImpact={defaults.gradeCurrentWeighting === "FINAL_ASSIGNMENT"}
                 dragging={draggingId === entry.id}
                 onDragStart={(e) => onDragStart(e, entry.id, category.id)}
                 rowIndex={i}
@@ -1612,7 +1812,10 @@ function CategoryTable({
 
 function EntryRow({
   entry,
+  courseId,
+  destinations,
   summary,
+  showFinalImpact,
   dragging,
   onDragStart,
   rowIndex,
@@ -1621,7 +1824,10 @@ function EntryRow({
   run,
 }: {
   entry: GradeEntryRow;
+  courseId: string;
+  destinations: readonly MoveDestination[];
   summary: EntrySummary;
+  showFinalImpact: boolean;
   dragging: boolean;
   onDragStart: (event: React.PointerEvent) => void;
   rowIndex: number;
@@ -1768,9 +1974,9 @@ function EntryRow({
           <CurveSwap curved={pct(summary.weight)} raw={pct(summary.finalWeight)} />
         ) : <NotApplicable />}
       </td>
-      <td className={summary.counted ? tone(summary.impact) : undefined}>
-        {summary.counted ? signed(summary.impact) : <NotApplicable />}
-      </td>
+      {summary.counted ? (
+        <ImpactCell impact={summary.impact} finalImpact={summary.finalImpact} showFinal={showFinalImpact} />
+      ) : <td><NotApplicable /></td>}
       <td>
         <input
           value={notes}
@@ -1779,6 +1985,8 @@ function EntryRow({
         />
       </td>
       <td className="row-actions">
+        <MoveRowButton itemName={entry.name || "assignment"} target="category" destinations={destinations}
+          onMove={(id) => api.moveGradeEntry(courseId, entry.id, id)} />
         <button
           className="ghost icon reveal"
           onClick={() => run(() => api.duplicateGradeEntry(entry.id))}

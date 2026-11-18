@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, loadData, store, applySyncedData, switchProfile, subscribeCommits } from "../src/store";
+import { parseBackup, serializeBackup } from "../src/backup";
+import { calculateGpa, totalCoursework } from "../src/gpa";
 
 const initial = loadData();
 
@@ -114,6 +116,29 @@ describe("undo and redo", () => {
     expect(store.undo()!.gpaTerms[0]!.courses[0]!.units).toBe(5);
     expect(store.redo()!.gpaTerms[0]!.courses[0]!.units).toBe(0);
   });
+  it("toggles GPA contributions while retaining coursework, backup data and undo history", async () => {
+    const term = await store.addGpaTerm("Autumn");
+    const first = term.courses[0]!;
+    const second = await store.addGpaCourse(term.id);
+    await store.updateGpaCourse(first.id, { grade: "A", units: 3 });
+    await store.updateGpaCourse(second.id, { grade: "B", units: 3 });
+
+    const courses = () => loadData().gpaTerms[0]!.courses;
+    expect(calculateGpa(courses()).gpa).toBe(3.5);
+    await store.toggleGpaCourse(first.id);
+    expect(calculateGpa(courses())).toEqual({ gpa: 3, units: 3, qualityPoints: 9, countedCourses: 1 });
+    expect(totalCoursework(courses())).toEqual({ units: 6, courseCount: 2 });
+    const restored = parseBackup(serializeBackup(loadData())).data;
+    expect(restored.gpaTerms[0]!.courses[0]).toMatchObject({ grade: "A", units: 3, excludedFromGpa: true });
+
+    store.undo();
+    expect(calculateGpa(courses()).gpa).toBe(3.5);
+    store.redo();
+    expect(calculateGpa(courses()).gpa).toBe(3);
+    await store.toggleGpaCourse(first.id);
+    expect(courses()[0]).not.toHaveProperty("excludedFromGpa");
+    expect(calculateGpa(courses()).gpa).toBe(3.5);
+  });
   it("restores category deletion and gradebook import atomically", async () => {
     const before = loadData();
     const course = before.courses[0]!;
@@ -129,6 +154,57 @@ describe("undo and redo", () => {
     expect(imported.courses[0]!.categories[0]!.name).toBe("Replacement");
     expect(store.undo()).toEqual(before);
     expect(store.redo()).toEqual(imported);
+  });
+  it("reorders the full category list as one edit", async () => {
+    const before = loadData();
+    const course = before.courses[0]!;
+    const ids = course.categories.map((category) => category.id).reverse();
+    expect(() => api.reorderGradeCategories(course.id, [ids[0]!, ids[0]!])).toThrow("category list changed");
+    expect(loadData()).toEqual(before);
+
+    await api.reorderGradeCategories(course.id, ids);
+    const reordered = loadData();
+    expect(reordered.courses[0]!.categories.map(({ id, sortOrder }) => [id, sortOrder]))
+      .toEqual(ids.map((id, index) => [id, index]));
+    expect(store.undo()).toEqual(before);
+    expect(store.redo()).toEqual(reordered);
+  });
+  it("moves an assignment to the end of another category and retains its data", async () => {
+    const course = loadData().courses[0]!;
+    const [source, destination] = course.categories;
+    const id = source!.entries[0]!.id;
+    await api.updateGradeEntry(id, { notes: "Keep this comment" });
+    const before = loadData();
+    const assignment = before.courses[0]!.categories[0]!.entries[0]!;
+    store.clearHistory();
+    expect(() => api.moveGradeEntry(course.id, id, "missing")).toThrow("category no longer exists");
+    await api.moveGradeEntry(course.id, id, source!.id);
+    expect(store.historyState().canUndo).toBe(false);
+
+    await api.moveGradeEntry(course.id, id, destination!.id);
+    const after = loadData();
+    const [updatedSource, updatedDestination] = after.courses[0]!.categories;
+    expect(updatedSource!.entries.map((entry) => entry.sortOrder)).toEqual([0, 1]);
+    expect(updatedSource!.entries.map((entry) => entry.id)).not.toContain(id);
+    expect(updatedDestination!.entries).toEqual([...destination!.entries, { ...assignment, sortOrder: 1 }]);
+    expect(store.undo()).toEqual(before);
+    expect(store.redo()).toEqual(after);
+  });
+  it("moves a GPA course between terms with its inclusion setting and ID intact", async () => {
+    const source = await store.addGpaTerm("Autumn");
+    const destination = await store.addGpaTerm("Winter");
+    const id = source.courses[0]!.id;
+    await store.updateGpaCourse(id, { name: "MATH 51", grade: "A", units: 5 });
+    await store.toggleGpaCourse(id);
+    const before = loadData();
+    await store.moveGpaCourse(id, destination.id);
+    const after = loadData();
+    expect(after.gpaTerms[0]!.courses).toEqual([]);
+    expect(after.gpaTerms[1]!.courses).toEqual([
+      ...destination.courses, before.gpaTerms[0]!.courses[0]!,
+    ]);
+    expect(store.undo()).toEqual(before);
+    expect(store.redo()).toEqual(after);
   });
 
   it("undoes assignment reordering and discards stale history after an external edit", async () => {

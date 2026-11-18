@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { loadData } from "../src/store";
-import { changedKeys, fromRecords, mergeRecords, toRecords, type Records } from "../src/sync/model";
+import { changedKeys, fromRecords, mergeRecords, toRecords, type Records, type Value } from "../src/sync/model";
 import { StaleSnapshot, SyncEngine, type EngineState, type Snapshot, type SyncCache, type Transport } from "../src/sync/engine";
 
 const data = loadData();
@@ -9,7 +9,7 @@ const base = toRecords(data);
 const entry = "entry:sample-assignment-1";
 const course = "course:sample-course";
 const copy = () => structuredClone(base);
-const edit = (records: Records, key: string, field: string, value: string | number | null) => {
+const edit = (records: Records, key: string, field: string, value: Value) => {
   const next = structuredClone(records); next[key]![field] = value; return next;
 };
 const settle = async () => { for (let i = 0; i < 12; i++) await Promise.resolve(); };
@@ -26,6 +26,18 @@ describe("record-level sync model", () => {
     expect(merged.conflicts).toEqual([]);
     expect(merged.records[entry]).toMatchObject({ points: 99, notes: "From phone" });
     expect(changedKeys(remote, merged.records)).toEqual([entry]);
+  });
+  it("merges excluding a GPA course with a concurrent grade edit", () => {
+    const key = "gpa-course:gpa1";
+    const local = edit(base, key, "excludedFromGpa", true);
+    const remote = edit(base, key, "grade", "B");
+    const merged = mergeRecords(base, local, remote);
+    expect(merged.conflicts).toEqual([]);
+    expect(fromRecords(merged.records).gpaTerms[0]!.courses[0]).toMatchObject({ grade: "B", excludedFromGpa: true });
+
+    const reenabled = mergeRecords(local, base, merged.records);
+    expect(reenabled.conflicts).toEqual([]);
+    expect(reenabled.records).toEqual(remote);
   });
   it("requires a choice for the same field, preserving unrelated edits", () => {
     const local = edit(edit(base, entry, "points", 95), "gpa-course:gpa1", "grade", "B+");

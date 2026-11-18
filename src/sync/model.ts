@@ -103,7 +103,8 @@ export function validateRecords(records: Records) {
     entry: { id: text, name: text, points: nullable(number), max: nullable(number), status: member(GRADE_STATUSES),
       sortOrder: number, notes: nullable(text) },
     term: { id: text, name: text },
-    "gpa-course": { id: text, name: text, grade: member(GPA_GRADES), units: nullable(number) },
+    "gpa-course": { id: text, name: text, grade: member(GPA_GRADES), units: nullable(number),
+      excludedFromGpa: optional((value) => value === true) },
   };
   if (!records || Array.isArray(records) || !records.settings) throw new Error("Invalid cloud gradebook settings.");
   for (const [key, row] of Object.entries(records)) {

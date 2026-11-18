@@ -28,10 +28,8 @@ import type {
  * way XP is always a function of the event log.
  *
  * The column that holds it together is IMPACT: `(percent - 1) x weight`, a
- * signed contribution to the distance from a perfect grade. It telescopes --
- * without a category curve, row impacts sum to their category's. Category
- * impacts always sum to the course's; a curve is the explicit category-level
- * adjustment between those two layers.
+ * signed contribution to the distance from a perfect grade. Row impacts sum to
+ * the category's impact after its curve, and category impacts sum to the course's.
  *
  * See SHEET-NOTES.md for the spreadsheet this reproduces, formula by formula.
  */
@@ -170,26 +168,49 @@ export function summarize(
   const summaries: CategorySummary[] = cats.map((category) => {
     const entries = canonical(category.entries);
     const scored = entries.filter(isScored);
+    const byPoints = byMax(category);
+    const gradedPoints = sumOf(scored.map((e) => e.max ?? 0));
+    const rawPercent = categoryPercent(scored, byPoints);
+    const percent = rawPercent === null ? null : applyCurve(rawPercent, category);
+    const deviation = percent === null ? 0 : percent - 1;
+
+    // Share the remaining loss or bonus among the assignments that contributed
+    // to it, using their share of the category average. If none had a raw
+    // loss or bonus in that direction, share the adjustment by weight alone.
+    const curveDelta = Math.abs((percent ?? 0) - (rawPercent ?? 0));
+    const curved = (percent === 1 && curveDelta > 0) ||
+      curveDelta > Number.EPSILON * Math.max(1, Math.abs(rawPercent ?? 0));
+    const direction = Math.sign(deviation);
+    const matchingGap = (gap: number) => Math.max(0, direction * gap);
+    const averageGap = curved && direction !== 0 ? sumOf(scored.map((entry) =>
+      matchingGap(entry.points! / entry.max! - 1) * (byPoints ? entry.max! : 1),
+    )) / (byPoints ? gradedPoints : scored.length) : 0;
 
     const entrySummaries: EntrySummary[] = entries.map((entry) => {
       const weight = (weightOf.get(entry.id) ?? 0) * scale;
       const percent =
         hasDenominator(entry) && entry.points !== null ? entry.points / entry.max! : null;
       const counted = isScored(entry);
+      const finalWeight = finalWeightOf.get(entry.id) ?? 0;
+      let entryDeviation = counted && percent !== null ? percent - 1 : 0;
+      if (counted && curved) {
+        entryDeviation = averageGap > 0
+          ? deviation * (matchingGap(entryDeviation) / averageGap)
+          : deviation;
+      }
       return {
         id: entry.id,
         status: entry.status,
         weight,
-        finalWeight: finalWeightOf.get(entry.id) ?? 0,
+        finalWeight,
         percent,
-        impact: counted && percent !== null ? (percent - 1) * weight : 0,
+        impact: entryDeviation * weight,
+        finalImpact: entryDeviation * finalWeight,
         counted,
         atStake: stakeOf.get(entry.id) ?? 0,
       };
     });
 
-    const rawPercent = categoryPercent(scored, byMax(category));
-    const percent = rawPercent === null ? null : applyCurve(rawPercent, category);
     const weight = sumOf(entrySummaries.map((e) => e.weight));
     const finalWeight = sumOf(entrySummaries.filter((e) => e.counted).map((e) => e.finalWeight));
 
@@ -200,11 +221,9 @@ export function summarize(
       syllabusWeight: syllabusWeightOf(category),
       percent,
       rawPercent,
-      // Entry rows remain raw. A category curve is applied once to their
-      // aggregate, so its category-level impact must be rebuilt from that
-      // curved percentage rather than summing the raw row impacts.
-      impact: percent === null ? 0 : (percent - 1) * weight,
-      gradedPoints: sumOf(scored.map((e) => e.max ?? 0)),
+      impact: deviation * weight,
+      finalImpact: deviation * finalWeight,
+      gradedPoints,
       atStakePoints: sumOf(
         entries
           .filter((e) => countsTowardAtStake(e.status) && hasDenominator(e))
@@ -224,6 +243,7 @@ export function summarize(
     pooledResidual: residual,
     percent: scale > 0 ? 1 + impact : null,
     impact,
+    finalImpact: sumOf(summaries.map((c) => c.finalImpact)),
     atStakePercent: sumOf(summaries.map((c) => c.atStakePercent)),
     warnings,
   };

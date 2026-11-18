@@ -18,6 +18,14 @@
   --bad: #e4777d;
   --warn: #d8aa5c;
   --accent: #8b7cf6;
+  --hover-stroke-width: 1px;
+  --focus-stroke-width: 2px;
+}
+
+:root,
+.app-shell {
+  --hover-stroke: color-mix(in srgb, var(--accent) 68%, #747a74);
+  --focus-stroke: color-mix(in srgb, var(--accent) 76%, white);
 }
 
 * {
@@ -53,9 +61,11 @@ select {
 
 button:focus-visible,
 input:focus-visible,
-select:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--accent) 76%, white);
-  outline-offset: 2px;
+select:focus-visible,
+textarea:focus-visible,
+summary:focus-visible {
+  outline: var(--focus-stroke-width) solid var(--focus-stroke);
+  outline-offset: calc(-1 * var(--focus-stroke-width));
 }
 
 .app-shell {
@@ -1720,7 +1730,6 @@ table.rows.grades input:hover {
 table.rows.grades input:focus {
   border: 0;
   background: color-mix(in srgb, var(--accent) 8%, #1b1b1b);
-  box-shadow: inset 0 0 0 2px var(--accent);
   outline: none;
 }
 
@@ -2062,10 +2071,6 @@ table.rows.grades td.row-actions .ghost.icon:focus-visible {
   font-size: 18px !important;
 }
 
-.category-table-shell {
-  border-color: var(--line);
-}
-
 .scroll-frame::before {
   background: linear-gradient(90deg, rgba(0, 0, 0, 0.94), rgba(0, 0, 0, 0));
 }
@@ -2329,30 +2334,15 @@ body,
 
 .summary-table-shell,
 .category-table-shell {
+  --frame-radius: 11px;
+  --frame-border-width: 1px;
+  --frame-inner-radius: calc(var(--frame-radius) - var(--frame-border-width));
   position: relative;
   isolation: isolate;
   overflow: hidden;
-  border: 1px solid var(--gridline, #484848);
-  border-radius: 11px;
+  border: var(--frame-border-width) solid #484848;
+  border-radius: var(--frame-radius);
   background: #171817;
-  box-shadow: none;
-}
-
-.summary-table-shell::after,
-.category-table-shell::after {
-  content: "";
-  position: absolute;
-  z-index: 30;
-  inset: -1px;
-  pointer-events: none;
-  border: 1px solid var(--gridline, #484848);
-  border-radius: inherit;
-}
-
-.summary-table-shell .scroll-frame,
-.category-table-shell .scroll-frame {
-  overflow: hidden;
-  border-radius: inherit;
 }
 
 .summary-table-shell table.rows.grades,
@@ -2448,22 +2438,22 @@ body,
    drawing a square inset at its four exposed corners. */
 .summary-table-shell table.rows:is(.grades, .gpa-table) thead tr:first-child th:first-child,
 .category-table-shell table.rows:is(.grades, .gpa-table) thead tr:first-child th:first-child {
-  border-top-left-radius: 10px;
+  border-top-left-radius: var(--frame-inner-radius);
 }
 
 .summary-table-shell table.rows:is(.grades, .gpa-table) thead tr:first-child th:last-child,
 .category-table-shell table.rows:is(.grades, .gpa-table) thead tr:first-child th:last-child {
-  border-top-right-radius: 10px;
+  border-top-right-radius: var(--frame-inner-radius);
 }
 
 .summary-table-shell table.rows:is(.grades, .gpa-table) tbody tr:last-child > :first-child,
 .category-table-shell table.rows:is(.grades, .gpa-table) tbody tr:last-child > :first-child {
-  border-bottom-left-radius: 10px;
+  border-bottom-left-radius: var(--frame-inner-radius);
 }
 
 .summary-table-shell table.rows:is(.grades, .gpa-table) tbody tr:last-child > :last-child,
 .category-table-shell table.rows:is(.grades, .gpa-table) tbody tr:last-child > :last-child {
-  border-bottom-right-radius: 10px;
+  border-bottom-right-radius: var(--frame-inner-radius);
 }
 
 /* Projection headers have explicit base fills, so they need equally explicit
@@ -2476,7 +2466,6 @@ body,
 .summary-table-shell .summary-scroll-frame table.rows.grades thead tr.band th.proj:hover,
 .summary-table-shell .summary-scroll-frame table.rows.grades thead tr.band + tr th.proj:hover {
   background: color-mix(in srgb, var(--accent) 24%, #2c302c) !important;
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 68%, #747a74) !important;
 }
 
 .entry-scroll-frame::before {
@@ -2599,16 +2588,34 @@ body.resizing-name-column * {
   display: inline;
 }
 
-/* Current weights reveal their unnormalized end-term share in the cell,
-   using the same swap as curved scores in both summary and assignment tables. */
+/* Weight and impact cells reveal their end-term values on hover. */
 table.rows.grades td.weight-cell:hover .curve-applied,
+table.rows.grades td.impact-cell:hover .curve-applied,
 table.rows.grades td.at-stake-cell:hover .curve-applied {
   display: none;
 }
 
 table.rows.grades td.weight-cell:hover .curve-raw,
+table.rows.grades td.impact-cell:hover .curve-raw,
 table.rows.grades td.at-stake-cell:hover .curve-raw {
   display: inline;
+}
+
+table.rows.grades td.impact-cell .curve-raw { color: inherit; }
+
+.at-stake-value {
+  position: relative;
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.at-stake-measure {
+  position: absolute;
+  inset: 0 auto auto 0;
+  width: max-content;
+  visibility: hidden;
 }
 
 .curve-settings-group {
@@ -3150,14 +3157,6 @@ table.rows.grades:not(.entries) .col-name {
   color: color-mix(in srgb, var(--accent) 68%, white) !important;
 }
 
-.category-table-shell {
-  overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--line));
-  border-radius: 11px;
-  background: #171817;
-  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.28);
-}
-
 .scroll-frame {
   position: relative;
   min-width: 0;
@@ -3309,7 +3308,6 @@ table.rows.grades tbody tr:not(.total):hover td {
 
 table.rows.grades tbody tr:not(.total) td:hover {
   background: color-mix(in srgb, var(--accent) 30%, #222422);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 38%, transparent);
 }
 
 .grades-dragging table.rows.grades.entries tbody tr:not(.dragging):hover td,
@@ -3481,19 +3479,18 @@ body {
   min-height: 42px;
   border: 1px solid transparent;
   padding: 8px 10px;
-  transition: background 0.14s ease, border-color 0.14s ease, transform 0.14s ease;
+  transition: background 0.14s ease, border-color 0.14s ease;
 }
 
 .course-list button:hover {
   border-color: color-mix(in srgb, var(--course-color) 18%, #343634);
   background: color-mix(in srgb, var(--course-color) 8%, #252625);
-  transform: translateX(1px);
 }
 
 .course-list button.active {
-  border-color: color-mix(in srgb, var(--course-color) 32%, #353735);
+  border-color: color-mix(in srgb, var(--course-color) 62%, #353735);
   background: linear-gradient(90deg, color-mix(in srgb, var(--course-color) 22%, #262726), #292a29);
-  box-shadow: inset 3px 0 0 var(--course-color), 0 8px 22px rgba(0, 0, 0, 0.14);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.14);
 }
 
 .course-list i {
@@ -3991,7 +3988,6 @@ button.status {
 .grade-radio:has(input:checked) {
   border-color: color-mix(in srgb, var(--accent) 62%, #565a56);
   background: color-mix(in srgb, var(--accent) 12%, #222422);
-  box-shadow: inset 3px 0 0 var(--accent);
 }
 
 .grade-radio:hover {
@@ -4443,10 +4439,6 @@ body,
   padding: 11px 3px 9px;
 }
 
-.category-table-shell {
-  border-color: var(--line);
-}
-
 .scroll-frame::before {
   background: linear-gradient(90deg, rgba(0, 0, 0, 0.94), rgba(0, 0, 0, 0));
 }
@@ -4491,7 +4483,6 @@ table.rows.grades.entries .col-notes {
 table.rows.grades.entries th.sticky-grip,
 table.rows.grades.entries td.sticky-grip {
   position: sticky !important;
-  left: 1px !important;
   z-index: 7 !important;
   width: 32px !important;
   padding: 0 !important;
@@ -4501,7 +4492,6 @@ table.rows.grades.entries td.sticky-grip {
 table.rows.grades.entries th.sticky-name,
 table.rows.grades.entries td.sticky-name {
   position: sticky !important;
-  left: 33px !important;
   z-index: 6 !important;
   border-right: 1px solid var(--gridline);
   background: #1b1c1b;
@@ -4804,7 +4794,6 @@ table.rows.grades input:focus {
   max-height: calc(100vh - 40px);
   overflow: auto;
   border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--line));
-  border-top: 3px solid var(--accent);
   border-radius: 16px;
   background: #242624;
   padding: 24px;
@@ -4846,7 +4835,7 @@ table.rows.grades input:focus {
 .settings-dialog.grade-popover .field-row:hover,
 .settings-dialog.grade-popover .toggle-row:hover,
 .appearance-dialog .field-row:hover {
-  border-color: color-mix(in srgb, var(--accent) 30%, #484b48);
+  border-color: var(--hover-stroke);
   background: #272927;
 }
 
@@ -5128,19 +5117,6 @@ table.rows.grades tbody tr.total td {
   padding-left: 2px;
 }
 
-/* PTS and MAX inputs are inset for compact number spacing, so drawing their
-   focus ring on the input leaves it floating inside the grid cell. Move the
-   focused surface to the cell so its highlight follows the actual grid edge. */
-.category-table-shell table.rows.grades.entries td.score-input-cell:focus-within {
-  background: color-mix(in srgb, var(--accent) 12%, #1b1b1b) !important;
-  box-shadow: inset 0 0 0 2px var(--accent) !important;
-}
-
-.category-table-shell table.rows.grades.entries td.score-input-cell > input:focus {
-  background: transparent !important;
-  box-shadow: none;
-}
-
 .scroll-frame::before,
 .scroll-frame::after {
   width: 26px;
@@ -5170,16 +5146,41 @@ table.rows.grades tbody tr.total td {
   background: color-mix(in srgb, var(--accent) 13%, #343834) !important;
 }
 
-.summary-table-shell table.rows.grades th:hover,
-.category-table-shell table.rows.grades th:hover,
-.summary-table-shell table.rows.grades td:hover,
-.category-table-shell table.rows.grades td:hover,
-.summary-table-shell table.rows.gpa-table th:hover,
-.category-table-shell table.rows.gpa-table th:hover,
-.summary-table-shell table.rows.gpa-table td:hover,
-.category-table-shell table.rows.gpa-table td:hover {
+/* The grid owns the stroke. Each cell paints against its padding edge so the
+   dividers stay single-width and the outer cells follow the viewer's curve. */
+:is(.summary-table-shell, .category-table-shell) table.rows:is(.grades, .gpa-table) :is(th, td):hover {
   background: color-mix(in srgb, var(--accent) 24%, #2c302c) !important;
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 68%, #747a74) !important;
+  --cell-stroke: var(--hover-stroke);
+  --cell-stroke-width: var(--hover-stroke-width);
+}
+
+.category-table-shell table.rows:is(.entries, .gpa-courses) td:has(> :is(input:focus, .gpa-grade-trigger:focus-visible, .gpa-grade-trigger.open, .gpa-include-toggle:focus-visible)) {
+  background: color-mix(in srgb, var(--accent) 12%, #1b1b1b) !important;
+  --cell-stroke: var(--focus-stroke);
+  --cell-stroke-width: var(--focus-stroke-width);
+}
+
+.category-table-shell table.rows.gpa-courses td:has(> input[aria-invalid="true"]) {
+  --cell-invalid-stroke: var(--bad);
+  --cell-stroke-width: var(--focus-stroke-width);
+}
+
+:is(.summary-table-shell, .category-table-shell) table.rows:is(.grades, .gpa-table)
+  :is(th, td):is(:hover, :focus-within, :has(> :where(input[aria-invalid="true"], .gpa-grade-trigger.open))) {
+  box-shadow: inset 0 0 0 var(--cell-stroke-width, 0px) var(--cell-invalid-stroke, var(--cell-stroke, transparent)) !important;
+}
+
+.category-table-shell table.rows:is(.entries, .gpa-courses) td > :is(input, .gpa-grade-trigger, .gpa-include-toggle):focus {
+  background: transparent !important;
+  box-shadow: none;
+  outline: none;
+}
+
+@media (forced-colors: active) {
+  .category-table-shell table.rows:is(.entries, .gpa-courses) td:has(> :is(input:focus, .gpa-grade-trigger:focus-visible, .gpa-grade-trigger.open, .gpa-include-toggle:focus-visible)) {
+    outline: var(--focus-stroke-width) solid Highlight;
+    outline-offset: calc(-1 * var(--focus-stroke-width));
+  }
 }
 
 .grades-dragging .category-table-shell table.rows.grades.entries tbody tr:not(.dragging):hover td,
@@ -5532,9 +5533,12 @@ body.autofill-dragging * {
 
 /* Notes is the one flexible track. All the editable and calculated tracks
    retain their declared widths even when the table has spare space. */
+.category-table-shell {
+  --actions-width: 102px;
+}
+
 .category-table-shell table.rows.grades.entries {
-  --actions-width: 72px;
-  min-width: calc(752px + var(--name-column-width, 180px));
+  min-width: calc(680px + var(--actions-width) + var(--name-column-width, 180px));
 }
 
 .category-table-shell table.rows.grades.entries .col-notes {
@@ -5586,7 +5590,7 @@ body.autofill-dragging * {
 }
 
 .entry-scroll-frame::after {
-  right: 72px;
+  right: var(--actions-width);
 }
 
 /* Keep the moving row's surface uniform across frozen cells, hovered cells,
@@ -5616,9 +5620,50 @@ body.autofill-dragging * {
   opacity: 1 !important;
 }
 
-.category-table-shell table.rows.grades.entries td.row-actions button:hover {
+.category-table-shell table.rows.grades.entries td.row-actions button:hover:not(:disabled) {
   border-color: currentColor !important;
   background: #353b35;
+}
+
+.category-table-shell table.rows.grades.entries td.row-actions button:disabled,
+.category-table-shell table.rows.gpa-courses td.gpa-row-actions button:disabled {
+  cursor: default;
+  opacity: .35 !important;
+}
+
+.category-order {
+  display: grid;
+  gap: 6px;
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+}
+
+.category-order-row {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 38px;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #202220;
+  color: var(--text);
+  text-align: left;
+  overflow-wrap: anywhere;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.category-order-row svg { fill: var(--dim); }
+.category-order-row:hover { border-color: var(--hover-stroke); }
+.category-order-row.dragging {
+  border-color: var(--focus-stroke);
+  background: color-mix(in srgb, var(--accent) 18%, #202220);
+  cursor: grabbing;
 }
 
 .settings-dialog .toggle-row {
@@ -5808,16 +5853,18 @@ table.rows.gpa-summary tr.total > * {
 }
 
 .gpa-term {
-  --gpa-figure-width: 64px;
-  --gpa-actions-width: 72px;
+  --gpa-column-width: 72px;
   --gpa-min-name-width: 120px;
+  --gpa-excluded-color: #757a75;
+}
+.gpa-term .category-table-shell {
+  --gpa-fixed-width: calc(5 * var(--gpa-column-width) + var(--actions-width));
 }
 table.rows.gpa-courses {
-  min-width: calc(var(--gpa-min-name-width) + 4 * var(--gpa-figure-width) + var(--gpa-actions-width));
+  min-width: calc(var(--gpa-min-name-width) + var(--gpa-fixed-width));
 }
-.gpa-courses .gpa-name { width: auto; }
-.gpa-courses .gpa-figure { width: var(--gpa-figure-width); }
-.gpa-courses .gpa-actions { width: var(--gpa-actions-width); }
+.gpa-courses .gpa-fixed-column { width: var(--gpa-column-width); }
+.gpa-courses .gpa-actions-column { width: var(--actions-width); }
 
 table.rows.gpa-courses th:first-child,
 table.rows.gpa-courses td:first-child {
@@ -5828,9 +5875,23 @@ table.rows.gpa-courses td:first-child {
 }
 table.rows.gpa-courses thead th:first-child { z-index: 10; }
 
+table.rows.gpa-courses thead th:not(:first-child) {
+  padding: 0;
+  text-align: center;
+}
+table.rows.gpa-courses thead th:not(:first-child, :last-child) { position: relative; }
+table.rows.gpa-courses thead th:not(:first-child) > span {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+}
+table.rows.gpa-courses thead th:not(:first-child):nth-last-child(n+3) > span { right: -1px; }
+table.rows.gpa-courses thead th:last-child > span { left: -1px; }
+
 /* Keep the left scroll fade off the frozen, flexible Course track. */
 .gpa-course-scroll-frame::before {
-  left: max(var(--gpa-min-name-width), calc(100% - 4 * var(--gpa-figure-width) - var(--gpa-actions-width)));
+  left: max(var(--gpa-min-name-width), calc(100% - var(--gpa-fixed-width)));
 }
 
 table.rows.gpa-courses td:has(input),
@@ -5860,26 +5921,34 @@ table.rows.gpa-courses td:has(.gpa-grade-trigger) {
   place-items: center;
   cursor: pointer;
 }
-/* The cell owns its highlight, keeping controls flush with the grid rather
-   than creating a smaller, competing rectangle inside it. */
-.category-table-shell table.rows.gpa-courses td:has(> input:focus),
-.category-table-shell table.rows.gpa-courses td:has(> .gpa-grade-trigger:focus-visible),
-.category-table-shell table.rows.gpa-courses td:has(.gpa-grade-trigger.open) {
-  background: color-mix(in srgb, var(--accent) 12%, #1b1b1b) !important;
-  box-shadow: inset 0 0 0 2px var(--accent) !important;
-}
-.category-table-shell table.rows.gpa-courses td:has(input[aria-invalid="true"]) {
-  box-shadow: inset 0 0 0 2px var(--bad) !important;
-}
-.gpa-courses input:focus,
-.gpa-courses .gpa-grade-trigger:focus {
-  background: transparent;
-  box-shadow: none;
-}
 .gpa-courses input::placeholder { color: var(--dim); }
 table.rows.gpa-table td.gpa-na { color: #60665f !important; }
 
 table.rows.gpa-table tbody tr:hover > * { color: #fff; }
+
+table.rows.gpa-courses tr.gpa-excluded > td:nth-child(n+2):nth-child(-n+5) {
+  color: var(--gpa-excluded-color);
+}
+.gpa-excluded :is(.gpa-grade-trigger, td:nth-child(3) input) { color: inherit; }
+
+table.rows.gpa-courses td.gpa-include-cell {
+  position: relative;
+  padding: 0;
+}
+.gpa-include-toggle {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--gpa-excluded-color);
+  cursor: pointer;
+}
+.gpa-include-toggle[aria-pressed="true"] { color: var(--good); }
 
 table.rows.gpa-courses th:last-child,
 table.rows.gpa-courses td:last-child {
@@ -5895,7 +5964,7 @@ table.rows.gpa-courses td:last-child {
 table.rows.gpa-courses tr > :nth-last-child(2) { border-right: 0; }
 
 .gpa-courses th:last-child { background: #202020; }
-.gpa-course-scroll-frame::after { right: var(--gpa-actions-width); }
+.gpa-course-scroll-frame::after { right: var(--actions-width); }
 .gpa-row-actions { white-space: nowrap; }
 .gpa-row-actions .ghost.icon {
   display: inline-flex;
@@ -5909,7 +5978,7 @@ table.rows.gpa-courses tr > :nth-last-child(2) { border-right: 0; }
   background: #262b26;
 }
 .gpa-row-actions .ghost.icon svg { width: 13px; height: 13px; }
-.gpa-row-actions .ghost.icon:hover { border-color: currentColor; background: #353b35; }
+.gpa-row-actions .ghost.icon:hover:not(:disabled) { border-color: currentColor; background: #353b35; }
 
 .gpa-rules { color: var(--dim); font-size: 12px; }
 .gpa-rules summary { cursor: pointer; }
@@ -5937,7 +6006,6 @@ table.rows.gpa-courses tr > :nth-last-child(2) { border-right: 0; }
   font-size: 12px;
 }
 .gpa-add-term input::placeholder { color: var(--dim); }
-.gpa-add-term input:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
 .gpa-sheet .forecast-card > span {
   color: var(--dim);
   font-size: 10px;
@@ -5999,4 +6067,17 @@ table.rows.gpa-courses tr > :nth-last-child(2) { border-right: 0; }
 .gpa-grade-gsb button { height: 30px; font-size: 11px; }
 .gpa-grade-grid button:hover { border-color: #929792; background: #373d37; }
 .gpa-grade-grid button[aria-pressed="true"] { border-color: #a8afa8; background: #454e45; }
-.gpa-grade-grid button:focus-visible { outline: 2px solid #b8c0b8; outline-offset: 1px; }
+
+/* Standalone editors share the same stroke on their own border box. Grid
+   editors use the cell's stroke because their inputs can be padded or inset. */
+:is(.settings-dialog, .grade-add, .gpa-add-term)
+  :is(input:not([type="checkbox"], [type="radio"], [type="file"]), select, textarea):hover {
+  outline: var(--hover-stroke-width) solid var(--hover-stroke);
+  outline-offset: calc(-1 * var(--hover-stroke-width));
+}
+
+:is(.settings-dialog, .grade-add, .gpa-add-term)
+  :is(input:not([type="checkbox"], [type="radio"], [type="file"]), select, textarea):focus {
+  outline: var(--focus-stroke-width) solid var(--focus-stroke);
+  outline-offset: calc(-1 * var(--focus-stroke-width));
+}

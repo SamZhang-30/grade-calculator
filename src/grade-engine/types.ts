@@ -204,8 +204,10 @@ export interface EntrySummary {
   finalWeight: number;
   /** points / max. null unless scored. */
   percent: number | null;
-  /** (percent - 1) x weight -- signed contribution to the deviation from 100%. */
+  /** This assignment's share of the category's deviation from 100%, after any curve. */
   impact: number;
+  /** The same curve-adjusted deviation weighted by the assignment's final weight. */
+  finalImpact: number;
   /** Whether this row moves the current grade. */
   counted: boolean;
   /** Share of the final grade this row still leaves undecided. */
@@ -227,6 +229,8 @@ export interface CategorySummary {
   /** Sum of points over sum of max before the optional curve. */
   rawPercent: number | null;
   impact: number;
+  /** Impact of scored work on the final grade, including the category curve. */
+  finalImpact: number;
   /** Total points possible across the rows that ARE scored. */
   gradedPoints: number;
   /** Raw points still unscored. */
@@ -255,6 +259,8 @@ export interface GradeSummary {
   percent: number | null;
   /** percent - 1, and equal to the sum of every category impact. */
   impact: number;
+  /** Sum of category impacts on the final grade. */
+  finalImpact: number;
   /** Share of the final grade not yet decided. */
   atStakePercent: number;
   warnings: GradeWarning[];

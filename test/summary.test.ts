@@ -175,7 +175,27 @@ describe("final-assignment current weighting", () => {
     expect(homework!.weight).toBeCloseTo(0.75, 12);
     expect(midterms!.weight).toBeCloseTo(0.25, 12);
     expect(result.percent).toBeCloseTo(0.875, 12);
+    expect(midterms!.entries[0]!.impact).toBeCloseTo(-0.05, 12);
+    expect(midterms!.entries[0]!.finalImpact).toBeCloseTo(-0.04, 12);
+    expect(midterms!.entries[1]!.finalImpact).toBe(0);
+    expect(homework!.finalImpact).toBeCloseTo(-0.06, 12);
+    expect(midterms!.finalImpact).toBeCloseTo(-0.04, 12);
+    expect(result.finalImpact).toBeCloseTo(-0.10, 12);
     expect(result.warnings).toEqual([]);
+  });
+
+  it("includes category curves and extra credit in final-grade impact", () => {
+    const categories = course();
+    categories[0]!.entries[0]!.points = 110;
+    categories[1]!.curveEnabled = true;
+    categories[1]!.curveAddend = 10;
+    const result = summarize(categories);
+    const [homework, midterms] = result.categories;
+
+    expect(homework!.entries[0]!.finalImpact).toBeCloseTo(0.06, 12);
+    expect(midterms!.entries[0]!.finalImpact).toBeCloseTo(-0.02, 12);
+    expect(midterms!.finalImpact).toBeCloseTo(-0.02, 12);
+    expect(result.finalImpact).toBeCloseTo(0.04, 12);
   });
 
   it("retains category-progress weighting as an explicit legacy option", () => {
@@ -383,6 +403,7 @@ describe("an empty gradebook", () => {
       pooledResidual: 0,
       percent: null,
       impact: 0,
+      finalImpact: 0,
       atStakePercent: 0,
       warnings: [],
     });

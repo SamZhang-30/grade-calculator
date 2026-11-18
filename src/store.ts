@@ -127,7 +127,7 @@ const starterData = (): AppData => ({
     {
       id: "sample-course",
       name: "Example course",
-      color: "#8b7cf6",
+      color: "#55B495",
       emoji: "📚",
       term: "Fall 2026",
       instructor: "Professor",
@@ -428,6 +428,11 @@ export const store = {
     }
     Object.assign(gpaCourseById(data, id), patch);
   }),
+  toggleGpaCourse: (id: string) => mutate((data) => {
+    const course = gpaCourseById(data, id);
+    if (course.excludedFromGpa) delete course.excludedFromGpa;
+    else course.excludedFromGpa = true;
+  }),
   duplicateGpaCourse: (id: string) => mutate((data) => {
     const term = data.gpaTerms.find((item) => item.courses.some((course) => course.id === id));
     if (!term) throw new Error("That GPA course no longer exists.");
@@ -435,6 +440,14 @@ export const store = {
     const copy = { ...term.courses[index]!, id: uid("gpa-course") };
     term.courses.splice(index + 1, 0, copy);
     return copy;
+  }),
+  moveGpaCourse: (id: string, termId: string) => mutate((data) => {
+    const destination = gpaTermById(data, termId);
+    const source = data.gpaTerms.find((term) => term.courses.some((course) => course.id === id));
+    if (!source) throw new Error("That GPA course no longer exists.");
+    if (source === destination) return;
+    const index = source.courses.findIndex((course) => course.id === id);
+    destination.courses.push(source.courses.splice(index, 1)[0]!);
   }),
   deleteGpaCourse: (id: string) => mutate((data) => {
     for (const term of data.gpaTerms) term.courses = term.courses.filter((course) => course.id !== id);
@@ -577,6 +590,17 @@ export const api = {
       }
     }),
 
+  reorderGradeCategories: (courseId: string, ids: string[]) =>
+    mutate((data) => {
+      const course = courseById(data, courseId);
+      const byId = new Map(course.categories.map((category) => [category.id, category]));
+      if (ids.length !== byId.size || new Set(ids).size !== ids.length ||
+          ids.some((id) => !byId.has(id))) {
+        throw new Error("The category list changed. Try reordering it again.");
+      }
+      course.categories = ids.map((id, sortOrder) => ({ ...byId.get(id)!, sortOrder }));
+    }),
+
   addGradeEntry: (
     categoryId: string,
     body: {
@@ -621,6 +645,21 @@ export const api = {
   updateGradeEntries: (updates: { id: string; patch: GradeEntryPatch }[]) =>
     mutate((data) => {
       for (const update of updates) Object.assign(entryById(data, update.id), update.patch);
+    }),
+
+  moveGradeEntry: (courseId: string, id: string, categoryId: string) =>
+    mutate((data) => {
+      const { categories } = courseById(data, courseId);
+      const destination = categories.find((category) => category.id === categoryId);
+      if (!destination) throw new Error("That category no longer exists in this class.");
+      const source = categories.find((category) => category.entries.some((entry) => entry.id === id));
+      if (!source) throw new Error("That assignment no longer exists in this class.");
+      if (source === destination) return;
+      const index = source.entries.findIndex((entry) => entry.id === id);
+      destination.entries.push(source.entries.splice(index, 1)[0]!);
+      for (const category of [source, destination]) {
+        category.entries.forEach((entry, sortOrder) => { entry.sortOrder = sortOrder; });
+      }
     }),
 
   deleteGradeEntry: (id: string) =>
