@@ -124,6 +124,10 @@ describe("undo and redo", () => {
     await store.updateGpaCourse(second.id, { grade: "B", units: 3 });
 
     const courses = () => loadData().gpaTerms[0]!.courses;
+    expect(courses().map((course) => course.excludedFromGpa)).toEqual([true, true]);
+    expect(calculateGpa(courses()).gpa).toBeNull();
+    await store.toggleGpaCourse(first.id);
+    await store.toggleGpaCourse(second.id);
     expect(calculateGpa(courses()).gpa).toBe(3.5);
     await store.toggleGpaCourse(first.id);
     expect(calculateGpa(courses())).toEqual({ gpa: 3, units: 3, qualityPoints: 9, countedCourses: 1 });
@@ -195,7 +199,6 @@ describe("undo and redo", () => {
     const destination = await store.addGpaTerm("Winter");
     const id = source.courses[0]!.id;
     await store.updateGpaCourse(id, { name: "MATH 51", grade: "A", units: 5 });
-    await store.toggleGpaCourse(id);
     const before = loadData();
     await store.moveGpaCourse(id, destination.id);
     const after = loadData();

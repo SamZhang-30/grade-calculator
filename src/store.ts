@@ -394,6 +394,10 @@ function gpaCourseById(data: AppData, id: string): GpaCourse {
   return course;
 }
 
+function newGpaCourse(): GpaCourse {
+  return { id: uid("gpa-course"), name: "", grade: "", units: null, excludedFromGpa: true };
+}
+
 export const store = {
   restoreBackup: (value: unknown) => {
     const restored = validateAppData(value);
@@ -405,7 +409,7 @@ export const store = {
   },
   addGpaTerm: (name: string) => mutate((data) => {
     const term: GpaTerm = { id: uid("gpa-term"), name: name.trim() || "Untitled term",
-      courses: [{ id: uid("gpa-course"), name: "", grade: "", units: null }] };
+      courses: [newGpaCourse()] };
     data.gpaTerms.push(term);
     return term;
   }),
@@ -417,7 +421,7 @@ export const store = {
     data.gpaTerms = data.gpaTerms.filter((term) => term.id !== id);
   }),
   addGpaCourse: (termId: string) => mutate((data) => {
-    const course: GpaCourse = { id: uid("gpa-course"), name: "", grade: "", units: null };
+    const course = newGpaCourse();
     gpaTermById(data, termId).courses.push(course);
     return course;
   }),
