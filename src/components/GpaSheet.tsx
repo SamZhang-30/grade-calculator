@@ -19,9 +19,10 @@ export function GpaSheet({ terms, switcher, historyControls, onChanged }: {
   const [error, setError] = useState("");
   const courses = terms.flatMap((term) => term.courses);
   const total = calculateGpa(courses);
-  const earnedUnits = totalCoursework(courses.filter((course) => !course.excludedFromGpa)).units;
-  const coursework = totalCoursework(courses);
-  const courseworkUnits = number(coursework.units);
+  const finalCourses = courses.filter((course) => !course.excludedFromGpa);
+  const earnedUnits = totalCoursework(finalCourses).units;
+  const completedCount = finalCourses.length;
+  const courseworkUnits = number(totalCoursework(courses).units);
   const run: Run = async (action) => {
     try { await action(); onChanged(); setError(""); }
     catch (cause) { setError((cause as Error).message); }
@@ -42,7 +43,13 @@ export function GpaSheet({ terms, switcher, historyControls, onChanged }: {
       <section className="grade-overview">
         <div className="forecast-highlights">
           <div className="forecast-card"><span>Cumulative GPA</span><strong>{displayGpa(total.gpa)}</strong><small>Across all included terms</small></div>
-          <div className="forecast-card"><span>Units earned</span><strong>{number(earnedUnits)}</strong><small>{courseworkUnits} {courseworkUnits === "1" ? "unit" : "units"} total across {coursework.courseCount} {coursework.courseCount === 1 ? "course" : "courses"}</small></div>
+          <div className="forecast-card">
+            <span>Units earned</span>
+            <strong>{number(earnedUnits)}</strong>
+            <small>
+              {number(total.units)} GPA {total.units === 1 ? "unit" : "units"} across {completedCount} {completedCount === 1 ? "course" : "courses"} completed
+            </small>
+          </div>
           <div className="forecast-card"><span>Grade points</span><strong>{total.qualityPoints.toFixed(1)}</strong><small>Grade value × applicable units</small></div>
         </div>
         {terms.length ? (
